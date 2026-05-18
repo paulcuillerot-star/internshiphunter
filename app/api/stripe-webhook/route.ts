@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import Stripe from "stripe";
 import { getStripeClient } from "@/lib/stripe";
 import { markReportPaid } from "@/lib/store";
 
@@ -9,7 +10,8 @@ export async function POST(request: Request) {
   if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET || !signature) return NextResponse.json({ received: true, mode: "mock" });
   const event = stripe.webhooks.constructEvent(rawBody, signature, process.env.STRIPE_WEBHOOK_SECRET);
   if (event.type === "checkout.session.completed") {
-    const reportId = event.data.object.metadata?.reportId;
+    const session = event.data.object as Stripe.Checkout.Session;
+    const reportId = session.metadata?.reportId;
     if (reportId) markReportPaid(reportId);
   }
   return NextResponse.json({ received: true });
