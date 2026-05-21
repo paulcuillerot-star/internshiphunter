@@ -19,8 +19,26 @@ type StoreSnapshot = {
 const storeFile = path.join(process.cwd(), ".internship-hunter-store.json");
 let hydrated = false;
 
+function hasSupabaseConfig() {
+  return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+}
+
 function canUseFileFallback() {
   return process.env.NODE_ENV !== "production";
+}
+
+function createMockReportForId(id: string): InternshipSearchReport {
+  const now = new Date().toISOString();
+
+  return {
+    ...mockReport,
+    id,
+    profileId: mockCandidateProfile.id,
+    freeOffers: mockReport.freeOffers.map((offer) => ({ ...offer, isPremium: false })),
+    premiumOffers: mockReport.premiumOffers.map((offer) => ({ ...offer, isPremium: true })),
+    createdAt: now,
+    updatedAt: now
+  };
 }
 
 function hydrate() {
@@ -76,7 +94,17 @@ export function saveReport(report: InternshipSearchReport) {
 
 export function getReport(id: string) {
   hydrate();
-  return reports.get(id) ?? (id === mockReport.id ? mockReport : undefined);
+  const report = reports.get(id);
+
+  if (report) {
+    return report;
+  }
+
+  if (!hasSupabaseConfig()) {
+    return createMockReportForId(id);
+  }
+
+  return id === mockReport.id ? mockReport : undefined;
 }
 
 export function listReports() {
