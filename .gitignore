@@ -6,3 +6,4 @@ out
 *.log
 dist
 .internship-hunter-store.json
+tsconfig.tsbuildinfo
