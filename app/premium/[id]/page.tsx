@@ -1,3 +1,4 @@
+import { notFound } from "next/navigation";
 import { OfferCard } from "@/components/OfferCard";
 import { getReport } from "@/lib/store";
 import { CheckoutButton } from "./CheckoutButton";
@@ -9,11 +10,7 @@ export default function PremiumPage({ params, searchParams }: { params: { id: st
   const report = getReport(params.id);
 
   if (!report) {
-    return (
-      <section className="section">
-        <h1 className="text-3xl font-bold text-ink">Premium report not found</h1>
-      </section>
-    );
+    notFound();
   }
 
   const unlocked = report.isPaid || searchParams.mockPaid === "true";
