@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { notFound } from "next/navigation";
 import { LockedOfferCard } from "@/components/LockedOfferCard";
 import { OfferCard } from "@/components/OfferCard";
 import { PricingCTA } from "@/components/PricingCTA";
@@ -12,14 +12,7 @@ export default function ReportPage({ params }: { params: { id: string } }) {
   const report = getReport(params.id);
 
   if (!report) {
-    return (
-      <section className="section">
-        <h1 className="text-3xl font-bold text-ink">Report not found</h1>
-        <Link href="/apply" className="mt-6 inline-flex button-primary">
-          Create a new search
-        </Link>
-      </section>
-    );
+    notFound();
   }
 
   const profile = getProfile(report.profileId);
@@ -34,9 +27,9 @@ export default function ReportPage({ params }: { params: { id: string } }) {
             These are the best free matches from the current search. Premium offers stay locked until checkout.
           </p>
         </div>
-        <Link href={`/premium/${report.id}`} className="button-primary">
+        <a href={`/premium/${report.id}`} className="button-primary">
           Unlock 5 more offers for €9.90
-        </Link>
+        </a>
       </div>
 
       <div className="mt-8">
