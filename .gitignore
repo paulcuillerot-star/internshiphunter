@@ -1,0 +1,9 @@
+node_modules
+.next
+out
+.env
+.env.local
+*.log
+dist
+.internship-hunter-store.json
+tsconfig.tsbuildinfo

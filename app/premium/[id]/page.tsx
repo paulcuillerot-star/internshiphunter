@@ -1,0 +1,48 @@
+import { OfferCard } from "@/components/OfferCard";
+import { getReport } from "@/lib/store";
+import { CheckoutButton } from "./CheckoutButton";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+export default function PremiumPage({ params, searchParams }: { params: { id: string }; searchParams: { mockPaid?: string } }) {
+  const report = getReport(params.id);
+
+  if (!report) {
+    return (
+      <section className="section">
+        <h1 className="text-3xl font-bold text-ink">Premium report not found</h1>
+      </section>
+    );
+  }
+
+  const unlocked = report.isPaid || searchParams.mockPaid === "true";
+
+  if (!unlocked) {
+    return (
+      <section className="section">
+        <div className="max-w-2xl rounded-lg border border-line bg-white p-8 shadow-soft">
+          <p className="text-sm font-semibold uppercase text-signal">Premium report</p>
+          <h1 className="mt-3 text-4xl font-bold text-ink">Unlock 5 more offers for €9.90</h1>
+          <p className="mt-4 text-ink/70">
+            Premium includes match score, quality score, interview probability, risks, application angle, LinkedIn message
+            and cover letter hook for each offer.
+          </p>
+          <CheckoutButton reportId={report.id} />
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="section">
+      <p className="text-sm font-semibold uppercase text-signal">Premium unlocked</p>
+      <h1 className="mt-3 text-4xl font-bold text-ink">Your 5 premium internship offers</h1>
+      <div className="mt-8 grid gap-5">
+        {report.premiumOffers.map((offer) => (
+          <OfferCard key={offer.id} offer={offer} reportId={report.id} premium />
+        ))}
+      </div>
+    </section>
+  );
+}
