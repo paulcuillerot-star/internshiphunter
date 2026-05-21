@@ -140,6 +140,14 @@ function extractText(response: OpenAITextResponse) {
   );
 }
 
+function assertWebSearchWasUsed(response: OpenAITextResponse) {
+  const usedWebSearch = response.output?.some((item) => item.type === "web_search_call");
+
+  if (!usedWebSearch) {
+    throw new Error("OpenAI response did not include a web_search_call.");
+  }
+}
+
 function parseOffers(text: string) {
   const trimmed = text.trim();
   const jsonText = trimmed.startsWith("```")
@@ -195,7 +203,7 @@ export async function webInternshipSearch(profile: CandidateProfile, cvText: str
     model: process.env.OPENAI_MODEL || "gpt-5",
     reasoning: { effort: "low" },
     tools: [{ type: "web_search" }],
-    tool_choice: "auto",
+    tool_choice: "required",
     include: ["web_search_call.action.sources"],
     text: {
       format: outputSchema
@@ -222,6 +230,7 @@ export async function webInternshipSearch(profile: CandidateProfile, cvText: str
     ]
   });
 
+  assertWebSearchWasUsed(response);
   const text = extractText(response);
   const offers = parseOffers(text);
 
