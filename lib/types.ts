@@ -1,66 +1,17 @@
 export type FeedbackType = "relevant" | "not_relevant" | "expired" | "already_applied" | "wrong_country" | "wrong_role" | "too_senior" | "not_a_real_internship";
 
-export type CandidateProfile = {
-  id: string;
-  firstName: string;
-  email: string;
-  cvFileUrl: string;
-  cvText: string;
-  targetCountries: string[];
-  targetCities: string[];
-  targetIndustries: string[];
-  desiredRoles: string[];
-  internshipStartDate: string;
-  internshipDuration: string;
-  languagesSpoken: string[];
-  minimumCompensation?: string;
-  companiesAlreadyAppliedTo: string[];
-  idealInternshipDescription: string;
-  thingsToAvoid: string;
-  createdAt: string;
-};
+export type CandidateProfile = { id: string; firstName: string; email: string; cvFileUrl: string; cvText: string; targetCountries: string[]; targetCities: string[]; targetIndustries: string[]; desiredRoles: string[]; internshipStartDate: string; internshipDuration: string; languagesSpoken: string[]; minimumCompensation?: string; companiesAlreadyAppliedTo: string[]; idealInternshipDescription: string; thingsToAvoid: string; createdAt: string };
 
-export type InternshipOffer = {
-  id: string;
-  title: string;
-  company: string;
-  location: string;
-  country: string;
-  city: string;
-  url: string;
-  source: string;
-  deadline: string;
-  publishedDate: string;
-  descriptionSummary: string;
-  requirementsSummary: string;
-  compensation: string;
-  languageRequirements: string[];
-  rawSourceSnippet: string;
-};
+export type SearchCategory = { id: string; name: string };
+export type SearchRegion = "Switzerland" | "Europe" | "Australia" | "Singapore" | "North America" | "Middle East" | "Asia-Pacific" | "International / Remote";
 
-export type ScoredInternshipOffer = InternshipOffer & {
-  matchScore: number;
-  qualityScore: number;
-  probabilityOfInterview: number;
-  whyItMatches: string[];
-  risks: string[];
-  applicationAngle: string;
-  linkedinMessage: string;
-  coverLetterHook: string;
-  isPremium: boolean;
-};
+export type InternshipOffer = { id: string; title: string; company: string; location: string; country: string; city: string; url: string; source: string; deadline: string; publishedDate: string; descriptionSummary: string; requirementsSummary: string; compensation: string; languageRequirements: string[]; rawSourceSnippet: string };
 
-export type InternshipSearchReport = {
-  id: string;
-  profileId: string;
-  status: "pending" | "completed" | "failed";
-  isPaid?: boolean;
-  freeOffers: ScoredInternshipOffer[];
-  premiumOffers: ScoredInternshipOffer[];
-  createdAt: string;
-  updatedAt: string;
-  errorMessage?: string;
-};
+export type ScoredInternshipOffer = InternshipOffer & { matchScore: number; qualityScore: number; probabilityOfInterview: number; whyItMatches: string[]; risks: string[]; applicationAngle: string; linkedinMessage: string; coverLetterHook: string; isPremium: boolean };
+export type WeeklyFreeOffer = ScoredInternshipOffer & { isPremium: false };
+export type SearchBucket = { id: string; category: SearchCategory; region: SearchRegion; displayTitle: string; shortDescription: string; whyThisBucketFits: string; weeklyFreeOffers: WeeklyFreeOffer[]; fallbackBucketId: string };
+export type MatchedSearchBucket = { category: SearchCategory; region: SearchRegion; bucket: SearchBucket; explanation: string };
 
+export type InternshipSearchReport = { id: string; profileId: string; status: "pending" | "completed" | "failed"; isPaid?: boolean; matchedSearch?: MatchedSearchBucket; freeOffers: ScoredInternshipOffer[]; premiumOffers: ScoredInternshipOffer[]; createdAt: string; updatedAt: string; errorMessage?: string };
 export type OfferFeedback = { id: string; reportId: string; offerId: string; feedbackType: FeedbackType; comment?: string; createdAt: string };
 export type AdminSearchLog = { id: string; profileId: string; reportId: string; status: "completed" | "failed"; querySummary: string; errorMessage?: string; rawResponse?: string; createdAt: string };
