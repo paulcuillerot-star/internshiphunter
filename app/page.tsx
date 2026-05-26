@@ -3,14 +3,97 @@ import { OfferCard } from "@/components/OfferCard";
 import { PricingCTA } from "@/components/PricingCTA";
 import { mockOffers } from "@/lib/mockData";
 
+const heroChips = [
+  "No more 47 open tabs",
+  "Weekly curated examples",
+  "Built for business school students",
+  "Live search after unlock"
+];
+
+const steps = [
+  ["1", "Share your search", "Upload your CV and tell us the countries and roles you want. Only the essentials are required."],
+  ["2", "Get your internship track", "We match you to a clear business-school internship track and show 2 weekly cached examples."],
+  ["3", "Unlock live personalized search", "When you want exact opportunities, premium will run a live personalized search around your CV and targets."]
+];
+
+const faqs = [
+  ["Does the free flow run live AI search?", "No. The free demo uses rule-based matching and cached weekly examples to keep the experience fast and cost-controlled."],
+  ["Do you scrape LinkedIn?", "No. LinkedIn scraping is intentionally not supported."],
+  ["Can it work without API keys?", "Yes. The MVP uses realistic mock data until OpenAI, Supabase and Stripe are configured."],
+  ["What happens after unlock?", "Premium live search will later use exact countries, cities, CV context, languages and companies already applied to."]
+];
+
 export default function HomePage() {
   return (
     <>
-      <section className="bg-gradient-to-b from-white to-mist"><div className="section grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center"><div><p className="text-sm font-semibold uppercase text-signal">AI internship research</p><h1 className="mt-4 max-w-3xl text-4xl font-bold tracking-tight text-ink sm:text-5xl">Upload your CV. Get 2 golden internship offers for free. Unlock 5 more if they are useful.</h1><p className="mt-5 max-w-2xl text-lg leading-8 text-ink/70">Internship Hunter searches the web like a focused human researcher: direct career pages, hidden boards, international internship pages and niche opportunities that match your profile.</p><div className="mt-8 flex flex-col gap-3 sm:flex-row"><Link href="/apply" className="button-primary">Start my search</Link><a href="#how" className="button-secondary">See how it works</a></div></div><OfferCard offer={mockOffers[0]} reportId="report_demo" /></div></section>
-      <section id="how" className="section"><h2 className="text-3xl font-bold text-ink">How it works</h2><div className="mt-8 grid gap-4 md:grid-cols-3">{[["1", "Share your profile", "Upload your CV and tell us where, when and what kind of internship you want."], ["2", "AI searches the web", "The search runs server-side with OpenAI web search and targeted researcher-style queries."], ["3", "Review strong matches", "You get 2 free offers first, then decide whether the 5 premium matches are worth unlocking."]].map(([step, title, body]) => <div key={step} className="rounded-lg border border-line bg-white p-5 shadow-soft"><span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-signal text-sm font-bold text-white">{step}</span><h3 className="mt-4 text-lg font-bold text-ink">{title}</h3><p className="mt-2 text-sm leading-6 text-ink/70">{body}</p></div>)}</div></section>
-      <section className="section grid gap-5 md:grid-cols-2"><div className="rounded-lg border border-line bg-white p-6 shadow-soft"><p className="text-sm font-semibold uppercase text-ink/50">Free</p><h2 className="mt-2 text-3xl font-bold text-ink">2 golden offers</h2><p className="mt-3 text-sm leading-6 text-ink/70">Enough to judge whether the research quality is real.</p><Link href="/apply" className="mt-6 button-secondary">Get free offers</Link></div><PricingCTA /></section>
-      <section className="section"><h2 className="text-3xl font-bold text-ink">FAQ</h2><div className="mt-6 divide-y divide-line rounded-lg border border-line bg-white">{[["Do you scrape LinkedIn?", "No. LinkedIn scraping is intentionally not supported."], ["Can it work without API keys?", "Yes. The MVP uses realistic mock data until OpenAI, Supabase and Stripe are configured."], ["Where do API keys live?", "Only server-side environment variables are used. No OpenAI key is exposed in frontend code."], ["What makes the offers better?", "The search prompt favors direct application links, recent roles, fit, language match and internship-level roles."]].map(([question, answer]) => <div key={question} className="p-5"><h3 className="font-semibold text-ink">{question}</h3><p className="mt-2 text-sm leading-6 text-ink/70">{answer}</p></div>)}</div></section>
-      <section className="section pt-4"><div className="rounded-lg bg-mist p-8 text-center"><h2 className="text-3xl font-bold text-ink">Find internships worth applying to.</h2><Link href="/apply" className="mt-6 button-primary">Upload my CV</Link></div></section>
+      <section className="bg-gradient-to-b from-white to-mist">
+        <div className="section grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+          <div>
+            <p className="text-sm font-semibold uppercase text-signal">Internship Hunter</p>
+            <h1 className="mt-4 max-w-3xl text-4xl font-bold tracking-tight text-ink sm:text-5xl">
+              Your internship search, without the job-board doom scroll.
+            </h1>
+            <p className="mt-5 max-w-2xl text-lg leading-8 text-ink/70">
+              Tell us what you are looking for. We match you with a clear internship track and 2 weekly examples - then unlock a live personalized search when you want exact opportunities.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-2">
+              {heroChips.map((chip) => (
+                <span key={chip} className="rounded-full border border-line bg-white px-3 py-2 text-sm font-semibold text-ink/70 shadow-soft">
+                  {chip}
+                </span>
+              ))}
+            </div>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <Link href="/apply" className="button-primary">Find my track</Link>
+              <a href="#how" className="button-secondary">See how it works</a>
+            </div>
+          </div>
+          <OfferCard offer={mockOffers[0]} reportId="report_demo" />
+        </div>
+      </section>
+
+      <section id="how" className="section">
+        <h2 className="text-3xl font-bold text-ink">How it works</h2>
+        <div className="mt-8 grid gap-4 md:grid-cols-3">
+          {steps.map(([step, title, body]) => (
+            <div key={step} className="rounded-lg border border-line bg-white p-5 shadow-soft">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-signal text-sm font-bold text-white">{step}</span>
+              <h3 className="mt-4 text-lg font-bold text-ink">{title}</h3>
+              <p className="mt-2 text-sm leading-6 text-ink/70">{body}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="section grid gap-5 md:grid-cols-2">
+        <div className="rounded-lg border border-line bg-white p-6 shadow-soft">
+          <p className="text-sm font-semibold uppercase text-ink/50">Free</p>
+          <h2 className="mt-2 text-3xl font-bold text-ink">Your matched track plus 2 examples</h2>
+          <p className="mt-3 text-sm leading-6 text-ink/70">A quick way to see which direction fits before paying for live personalized research.</p>
+          <Link href="/apply" className="mt-6 button-secondary">Get my free track</Link>
+        </div>
+        <PricingCTA />
+      </section>
+
+      <section className="section">
+        <h2 className="text-3xl font-bold text-ink">FAQ</h2>
+        <div className="mt-6 divide-y divide-line rounded-lg border border-line bg-white">
+          {faqs.map(([question, answer]) => (
+            <div key={question} className="p-5">
+              <h3 className="font-semibold text-ink">{question}</h3>
+              <p className="mt-2 text-sm leading-6 text-ink/70">{answer}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="section pt-4">
+        <div className="rounded-lg bg-mist p-8 text-center">
+          <h2 className="text-3xl font-bold text-ink">Find internships worth applying to.</h2>
+          <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-ink/70">Start with the free track. Upgrade later only when you want a personalized live search.</p>
+          <Link href="/apply" className="mt-6 button-primary">Start free</Link>
+        </div>
+      </section>
     </>
   );
 }
