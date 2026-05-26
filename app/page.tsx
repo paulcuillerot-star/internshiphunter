@@ -26,29 +26,35 @@ const faqs = [
 export default function HomePage() {
   return (
     <>
-      <section className="bg-gradient-to-b from-white to-mist">
-        <div className="section grid gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+      <section className="bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.22),transparent_32%),linear-gradient(180deg,#ffffff_0%,#f0fdf4_52%,#f6f8f9_100%)]">
+        <div className="section grid gap-10 py-16 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
           <div>
-            <p className="text-sm font-semibold uppercase text-signal">Internship Hunter</p>
-            <h1 className="mt-4 max-w-3xl text-4xl font-bold tracking-tight text-ink sm:text-5xl">
-              Your internship search, without the job-board doom scroll.
+            <p className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-sm font-bold uppercase tracking-wide text-signal ring-1 ring-emerald-200">
+              Internship Hunter
+            </p>
+            <h1 className="mt-5 max-w-3xl text-4xl font-black tracking-tight text-ink sm:text-6xl">
+              Find internships that actually fit your profile.
             </h1>
             <p className="mt-5 max-w-2xl text-lg leading-8 text-ink/70">
-              Tell us what you are looking for. We match you with a clear internship track and 2 weekly examples - then unlock a live personalized search when you want exact opportunities.
+              Share what you are looking for. We match you to an internship search track, show 2 weekly examples for free, and later unlock live personalized search for exact opportunities.
             </p>
             <div className="mt-6 flex flex-wrap gap-2">
               {heroChips.map((chip) => (
-                <span key={chip} className="rounded-full border border-line bg-white px-3 py-2 text-sm font-semibold text-ink/70 shadow-soft">
+                <span key={chip} className="rounded-full border border-emerald-200 bg-white px-4 py-2 text-sm font-bold text-emerald-900 shadow-[0_12px_28px_rgba(16,185,129,0.12)]">
                   {chip}
                 </span>
               ))}
             </div>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Link href="/apply" className="button-primary">Find my track</Link>
+              <Link href="/apply" className="inline-flex items-center justify-center rounded-md bg-signal px-6 py-3 text-sm font-bold text-white shadow-[0_18px_38px_rgba(15,118,110,0.3)] transition hover:bg-emerald-700">
+                Find my track
+              </Link>
               <a href="#how" className="button-secondary">See how it works</a>
             </div>
           </div>
-          <OfferCard offer={mockOffers[0]} reportId="report_demo" />
+          <div className="rounded-xl bg-white/70 p-2 shadow-[0_26px_80px_rgba(16,24,32,0.13)] ring-1 ring-emerald-100">
+            <OfferCard offer={mockOffers[0]} reportId="report_demo" />
+          </div>
         </div>
       </section>
 
@@ -66,8 +72,8 @@ export default function HomePage() {
       </section>
 
       <section className="section grid gap-5 md:grid-cols-2">
-        <div className="rounded-lg border border-line bg-white p-6 shadow-soft">
-          <p className="text-sm font-semibold uppercase text-ink/50">Free</p>
+        <div className="rounded-lg border border-emerald-100 bg-white p-6 shadow-soft">
+          <p className="text-sm font-semibold uppercase text-signal">Free</p>
           <h2 className="mt-2 text-3xl font-bold text-ink">Your matched track plus 2 examples</h2>
           <p className="mt-3 text-sm leading-6 text-ink/70">A quick way to see which direction fits before paying for live personalized research.</p>
           <Link href="/apply" className="mt-6 button-secondary">Get my free track</Link>
@@ -88,10 +94,10 @@ export default function HomePage() {
       </section>
 
       <section className="section pt-4">
-        <div className="rounded-lg bg-mist p-8 text-center">
+        <div className="rounded-lg bg-gradient-to-br from-emerald-50 to-mist p-8 text-center ring-1 ring-emerald-100">
           <h2 className="text-3xl font-bold text-ink">Find internships worth applying to.</h2>
           <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-ink/70">Start with the free track. Upgrade later only when you want a personalized live search.</p>
-          <Link href="/apply" className="mt-6 button-primary">Start free</Link>
+          <Link href="/apply" className="mt-6 inline-flex items-center justify-center rounded-md bg-signal px-5 py-3 text-sm font-bold text-white shadow-soft transition hover:bg-emerald-700">Start free</Link>
         </div>
       </section>
     </>

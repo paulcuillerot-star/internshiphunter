@@ -1,2 +1,18 @@
 import Link from "next/link";
-export function PricingCTA({ reportId }: { reportId?: string }) { const href = reportId ? `/premium/${reportId}` : "/apply"; return <div className="rounded-lg border border-line bg-ink p-6 text-white shadow-soft"><p className="text-sm font-semibold uppercase text-white/60">Premium unlock</p><h3 className="mt-2 text-2xl font-bold">Personalized live AI search</h3><p className="mt-2 text-sm leading-6 text-white/75">Unlock exact target countries and cities, CV-based matching, language filtering, companies already applied to, application angles and outreach support.</p><Link href={href} className="mt-5 inline-flex rounded-md bg-white px-5 py-3 text-sm font-semibold text-ink">Unlock personalized search</Link></div>; }
+
+export function PricingCTA({ reportId }: { reportId?: string }) {
+  const href = reportId ? `/premium/${reportId}` : "/apply";
+
+  return (
+    <div className="rounded-lg border border-emerald-400/30 bg-ink p-6 text-white shadow-soft">
+      <p className="inline-flex rounded-full bg-emerald-400/15 px-3 py-1 text-xs font-bold uppercase tracking-wide text-emerald-200">Premium unlock</p>
+      <h3 className="mt-4 text-3xl font-bold">Unlock my personalized live search</h3>
+      <p className="mt-3 text-sm leading-6 text-white/75">
+        For €9.90, premium will search exact roles around your CV, target cities, languages, companies already applied to and timing.
+      </p>
+      <Link href={href} className="mt-5 inline-flex rounded-md bg-emerald-400 px-5 py-3 text-sm font-bold text-ink shadow-[0_16px_35px_rgba(52,211,153,0.28)] transition hover:bg-emerald-300">
+        Unlock for €9.90
+      </Link>
+    </div>
+  );
+}
