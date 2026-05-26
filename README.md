@@ -1,10 +1,6 @@
 # Internship Hunter
 
-Internship Hunter helps students find highly relevant internship offers from the open web. The student uploads a CV and search preferences, then the app uses server-side AI research to return 2 free "golden" offers and 5 premium offers behind an unlock flow.
-
-## Product Concept
-
-The core value is automated internet research. The search module is designed for targeted web queries, company career pages, hidden job boards, international internship pages, and niche business, sport, event, marketing, sponsorship and tech opportunities.
+Internship Hunter helps business school students find relevant internship directions without falling into the job-board doom scroll. The free flow matches a student to a broad internship search track and shows 2 cached weekly examples. Premium live personalized search is reserved for a future paid flow.
 
 The product intentionally does not scrape LinkedIn and does not rely on manual offer entry as the main workflow.
 
@@ -13,9 +9,9 @@ The product intentionally does not scrape LinkedIn and does not rely on manual o
 - Next.js App Router
 - TypeScript
 - Tailwind CSS
-- OpenAI Responses API with built-in `web_search`
-- Supabase-ready persistence layer
-- Stripe-ready checkout layer
+- Supabase-ready persistence
+- OpenAI Responses API architecture for future paid live search
+- Stripe-ready checkout architecture for a future unlock flow
 - Vercel-ready deployment
 
 ## Local Setup
@@ -30,33 +26,61 @@ Open `http://localhost:3000`.
 
 ## Environment Variables
 
-See `.env.example` for `OPENAI_API_KEY`, `OPENAI_MODEL`, Supabase keys, Stripe keys, `NEXT_PUBLIC_SITE_URL` and `ADMIN_PASSWORD`.
+See `.env.example` for all supported variables. For this Supabase persistence step, the required variables are:
 
-## How OpenAI Web Search Is Used
-
-The server-side module at `lib/ai/webInternshipSearch.ts` calls the OpenAI Responses API with:
-
-```json
-{ "tools": [{ "type": "web_search" }] }
+```bash
+NEXT_PUBLIC_SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
 ```
 
-It builds targeted queries from the candidate profile, asks the model to search like a strong internship researcher, and requests exactly 7 structured offers. API keys are read only from server-side environment variables.
+`SUPABASE_SERVICE_ROLE_KEY` is server-side only. Do not expose it in client components or browser code.
 
-If `OPENAI_API_KEY` is missing, the app returns realistic mock offers so the MVP remains runnable locally.
+## Supabase Setup
+
+1. Create a Supabase project.
+2. Open the Supabase SQL editor.
+3. Paste and run `database/schema.sql`.
+4. Copy the project URL into `NEXT_PUBLIC_SUPABASE_URL`.
+5. Copy the service role key into `SUPABASE_SERVICE_ROLE_KEY`.
+6. Add the same variables locally in `.env.local` and in Vercel project settings.
+7. Redeploy on Vercel.
+
+When Supabase is configured, Internship Hunter persists:
+
+- submitted user profiles
+- generated free search reports
+- search logs
+- offer feedback
+- weekly free usage records
+
+Free reports are limited to 1 per email per week through the `free_usage_limits` table. If the same email submits again in the same week, the API returns the existing report id instead of creating a new report.
+
+When Supabase is not configured, the app keeps the current mock/in-memory fallback so the Vercel demo and local development flow remain usable.
+
+## Current Free Flow
+
+The free flow does not call OpenAI `web_search`. It uses deterministic category and region matching from the candidate profile, selects the closest active search bucket, and returns 2 cached weekly example offers.
+
+The cached examples are realistic product examples, not live-verified vacancies.
+
+## Future OpenAI Live Search
+
+The server-side OpenAI architecture remains in the repo for the future paid flow. Live personalized search is not triggered by free users. A later premium flow can use OpenAI web search for exact roles based on CV, target cities, languages, companies already applied to and timing.
 
 ## Current Limitations
 
-- Real OpenAI web search requires `OPENAI_API_KEY`.
-- Real payments require Stripe keys.
 - Real persistence requires Supabase setup.
-- CV text extraction is basic/mock in the first version.
-- Search quality depends on prompt quality and web results.
+- Free usage tracking only works when Supabase env vars are configured.
+- OpenAI live search is not enabled in the free flow.
+- Stripe payments are not implemented yet.
+- CV text extraction is basic/mock in this version.
+- Search quality for the free report depends on rule-based category and bucket matching.
 - LinkedIn scraping is intentionally not supported.
 
 ## Next Steps
 
 - Add real PDF text extraction and CV storage.
-- Persist profiles, reports, offers, feedback and payments in Supabase.
-- Verify payment status server-side before showing premium offers.
+- Add a real paid unlock flow with Stripe.
+- Run personalized OpenAI live search only after premium unlock.
 - Improve admin monitoring with filters and error traces.
-- Add tests for search result normalization and payment unlock logic.
+- Add tests for Supabase persistence and weekly free usage limits.
