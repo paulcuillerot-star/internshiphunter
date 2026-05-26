@@ -9,10 +9,10 @@ import { getProfile, getReport } from "@/lib/store";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export default function ReportPage({ params }: { params: { id: string } }) {
-  const report = getReport(params.id);
+export default async function ReportPage({ params }: { params: { id: string } }) {
+  const report = await getReport(params.id);
   if (!report) notFound();
-  const profile = getProfile(report.profileId);
+  const profile = await getProfile(report.profileId);
 
   return (
     <section className="section">
