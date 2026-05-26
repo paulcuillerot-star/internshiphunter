@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     const session = event.data.object as Stripe.Checkout.Session;
     const reportId = session.metadata?.reportId;
     if (reportId) {
-      markReportPaid(reportId);
+      await markReportPaid(reportId);
     }
   }
 
