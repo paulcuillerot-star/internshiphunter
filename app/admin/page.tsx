@@ -3,7 +3,7 @@ import { listFeedback, listLogs, listReports, getProfile } from "@/lib/store";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export default function AdminPage({ searchParams }: { searchParams: { password?: string } }) {
+export default async function AdminPage({ searchParams }: { searchParams: { password?: string } }) {
   const configuredPassword = process.env.ADMIN_PASSWORD;
   const isLocalDev = process.env.NODE_ENV !== "production";
   const authorized = configuredPassword ? searchParams.password === configuredPassword : isLocalDev;
@@ -23,9 +23,8 @@ export default function AdminPage({ searchParams }: { searchParams: { password?:
     );
   }
 
-  const reports = listReports();
-  const feedback = listFeedback();
-  const logs = listLogs();
+  const [reports, feedback, logs] = await Promise.all([listReports(), listFeedback(), listLogs()]);
+  const reportProfiles = await Promise.all(reports.map((report) => getProfile(report.profileId)));
 
   return (
     <section className="section">
@@ -34,8 +33,8 @@ export default function AdminPage({ searchParams }: { searchParams: { password?:
       <p className="mt-3 text-ink/70">For viewing searches, generated offers, feedback, payments and errors. No manual offer entry.</p>
 
       <div className="mt-8 grid gap-5">
-        {reports.map((report) => {
-          const profile = getProfile(report.profileId);
+        {reports.map((report, index) => {
+          const profile = reportProfiles[index];
           return (
             <article key={report.id} className="rounded-lg border border-line bg-white p-5 shadow-soft">
               <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">

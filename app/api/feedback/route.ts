@@ -28,8 +28,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid feedback." }, { status: 400 });
   }
 
-  saveFeedback({
-    id: `feedback_${crypto.randomUUID()}`,
+  await saveFeedback({
+    id: crypto.randomUUID(),
     reportId: body.reportId,
     offerId: body.offerId,
     feedbackType: body.feedbackType,
