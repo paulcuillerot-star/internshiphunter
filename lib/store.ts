@@ -249,9 +249,13 @@ export async function listCachedOpportunitiesForBucket(bucketId: string) {
 }
 
 export async function getBestCachedOpportunityForProfile(profile: CandidateProfile, matchedSearch: MatchedSearchBucket) {
-  const cached = (await listCachedOpportunitiesForBucket(matchedSearch.bucket.id)).filter((item) => !isExpired(item) && item.url);
-  const bestCached = cached.sort((a, b) => scoreCachedOpportunity(b, profile, matchedSearch) - scoreCachedOpportunity(a, profile, matchedSearch))[0];
-  return bestCached ?? bestOffer(matchedSearch.bucket.weeklyFreeOffers);
+  try {
+    const cached = (await listCachedOpportunitiesForBucket(matchedSearch.bucket.id)).filter((item) => !isExpired(item) && item.url);
+    const bestCached = cached.sort((a, b) => scoreCachedOpportunity(b, profile, matchedSearch) - scoreCachedOpportunity(a, profile, matchedSearch))[0];
+    return bestCached ?? bestOffer(matchedSearch.bucket.weeklyFreeOffers);
+  } catch {
+    return bestOffer(matchedSearch.bucket.weeklyFreeOffers);
+  }
 }
 
 export async function listReports() {
