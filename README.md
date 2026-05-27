@@ -1,6 +1,6 @@
 # Internship Hunter
 
-Internship Hunter helps business school students find relevant internship directions without falling into the job-board doom scroll. The free flow matches a student to a broad internship search track and shows 2 cached weekly examples. Premium live personalized search is reserved for a future paid flow.
+Internship Hunter helps business school students find relevant internship directions without falling into the job-board doom scroll. The free flow uses a guided form, matches a student to a broad internship search track, and shows 1 top cached opportunity example. Premium live personalized search is reserved for a future paid flow.
 
 The product intentionally does not scrape LinkedIn and does not rely on manual offer entry as the main workflow.
 
@@ -59,13 +59,19 @@ When Supabase is not configured, the app keeps the current mock/in-memory fallba
 
 ## Current Free Flow
 
-The free flow does not call OpenAI `web_search`. It uses deterministic category and region matching from the candidate profile, selects the closest active search bucket, and returns 2 cached weekly example offers.
+The free flow does not call OpenAI `web_search`. It uses deterministic category and region matching from the guided profile fields, selects the closest active search bucket, and returns 1 top cached opportunity example.
 
-The cached examples are realistic product examples, not live-verified vacancies.
+The apply form asks users to choose up to 2 internship tracks from a fixed list. It also asks for a target market using either broad regions or specific countries. These values are stored in the existing `desired_roles` and `target_countries` arrays so the current Supabase schema stays compatible.
+
+The CV upload is still required and stored for the later paid flow, but it is not parsed and does not influence the free result yet. The free result is based on the selected track, target market, languages and profile details.
+
+The cached example is a realistic product example, not a live-verified vacancy.
 
 ## Future OpenAI Live Search
 
 The server-side OpenAI architecture remains in the repo for the future paid flow. Live personalized search is not triggered by free users. A later premium flow can use OpenAI web search for exact roles based on CV, target cities, languages, companies already applied to and timing.
+
+OpenAI cache refresh will come later and should continue to protect free-flow API costs.
 
 ## Current Limitations
 
