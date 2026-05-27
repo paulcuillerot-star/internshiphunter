@@ -52,6 +52,9 @@ export async function POST(request: Request) {
     const matchedSearch = matchSearchBucket(profile);
     const topOffer = bestFreeOffer(matchedSearch.bucket.weeklyFreeOffers);
     const freeOffers = topOffer ? [topOffer] : [];
+    // Future cache refresh rule: reject clearly unpaid internships; accept paid, stipend,
+    // allowance or unspecified compensation when the opportunity is strong. Treat
+    // unspecified compensation as a visible risk/note, not a hard rejection.
     const premiumOffers = mockOffers.filter((offer) => offer.isPremium).slice(0, 5);
     const report: InternshipSearchReport = { id: reportId, profileId: profile.id, status: "completed", isPaid: false, matchedSearch, freeOffers, premiumOffers, createdAt: now, updatedAt: new Date().toISOString() };
     await saveReport(report);
