@@ -109,7 +109,7 @@ function isUsableUrl(url: string) {
 
 function isClearlyUnpaid(value: string) {
   const text = value.toLowerCase();
-  return /unpaid|no compensation|volunteer|benevol|bénévol/.test(text);
+  return /unpaid|no compensation|volunteer|benevol/.test(text);
 }
 
 function isClearlyNotInternship(item: RefreshOpportunity) {
