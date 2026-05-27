@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { mockOffers } from "@/lib/mockData";
 import { matchSearchBucket } from "@/lib/searchBuckets";
-import { getWeeklyFreeUsageReportId, hasSupabaseConfig, saveLog, saveProfile, saveReport, saveWeeklyFreeUsage } from "@/lib/store";
-import type { CandidateProfile, InternshipSearchReport, ScoredInternshipOffer } from "@/lib/types";
+import { getBestCachedOpportunityForProfile, getWeeklyFreeUsageReportId, hasSupabaseConfig, saveLog, saveProfile, saveReport, saveWeeklyFreeUsage } from "@/lib/store";
+import type { CandidateProfile, InternshipSearchReport } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,9 +20,6 @@ function currentWeekKey() {
   const day = Math.floor((Number(now) - Number(start)) / 86400000);
   const week = Math.ceil((day + start.getUTCDay() + 1) / 7);
   return `${now.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
-}
-function bestFreeOffer(offers: ScoredInternshipOffer[]) {
-  return [...offers].sort((a, b) => (b.matchScore + b.qualityScore) - (a.matchScore + a.qualityScore))[0];
 }
 
 export async function POST(request: Request) {
@@ -50,16 +47,13 @@ export async function POST(request: Request) {
     }
 
     const matchedSearch = matchSearchBucket(profile);
-    const topOffer = bestFreeOffer(matchedSearch.bucket.weeklyFreeOffers);
+    const topOffer = await getBestCachedOpportunityForProfile(profile, matchedSearch);
     const freeOffers = topOffer ? [topOffer] : [];
-    // Future cache refresh rule: reject clearly unpaid internships; accept paid, stipend,
-    // allowance or unspecified compensation when the opportunity is strong. Treat
-    // unspecified compensation as a visible risk/note, not a hard rejection.
     const premiumOffers = mockOffers.filter((offer) => offer.isPremium).slice(0, 5);
     const report: InternshipSearchReport = { id: reportId, profileId: profile.id, status: "completed", isPaid: false, matchedSearch, freeOffers, premiumOffers, createdAt: now, updatedAt: new Date().toISOString() };
     await saveReport(report);
     await saveWeeklyFreeUsage(profile.email, currentWeekKey(), reportId);
-    await saveLog({ id: makeId(), profileId: profile.id, reportId, status: "completed", querySummary: `${matchedSearch.bucket.id}: ${matchedSearch.explanation}`, rawResponse: "Free flow uses rule-based bucket matching with cached/mock weekly examples. OpenAI web_search is not called.", createdAt: new Date().toISOString() });
+    await saveLog({ id: makeId(), profileId: profile.id, reportId, status: "completed", querySummary: `${matchedSearch.bucket.id}: ${matchedSearch.explanation}`, rawResponse: "Free flow reads cached bucket opportunities or mock weekly examples. OpenAI web_search is not called during user submission.", createdAt: new Date().toISOString() });
     return NextResponse.json({ reportId, offers: freeOffers, matchedSearch });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown search error";
