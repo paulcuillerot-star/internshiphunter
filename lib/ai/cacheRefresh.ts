@@ -168,15 +168,24 @@ function normalizeOpportunity(item: RefreshOpportunity, bucket: SearchBucket, re
   };
 }
 
+async function createRefreshResponse(input: Record<string, unknown>) {
+  try {
+    return await createOpenAIResponse<OpenAIResponse>({ ...input, include: ["web_search_call.action.sources"] });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (!message.includes("web_search_call.action.sources") && !message.includes("include")) throw error;
+    return createOpenAIResponse<OpenAIResponse>(input);
+  }
+}
+
 export async function refreshBucketOpportunities(bucket: SearchBucket, refreshRunId: string, limit: number) {
   const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
   const prompt = `Find 5-8 current internship or traineeship opportunities for business school students.\n\nBucket: ${bucket.id}\nCategory: ${bucket.category.name}\nRegion/market: ${bucket.region}\nTrack title: ${bucket.displayTitle}\n\nSearch like a strong human internship researcher: targeted queries, employer career pages, Greenhouse, Lever, Workday, Teamtailor, SmartRecruiters, Ashby and official job pages.\n\nRules:\n- Return only internships, traineeships, stages or student placements suitable for business school students.\n- Reject clearly unpaid internships. Accept paid, stipend, allowance, or compensation not specified if the employer/opportunity is strong. If compensation is not specified, include it as a risk.\n- Reject offers without a usable URL. Prefer direct employer or official ATS URLs. Avoid generic Google URLs. Avoid LinkedIn URLs.\n- Reject senior, full-time permanent or non-internship roles.\n- Reject expired roles when the deadline is clearly in the past.\n- Prioritize recent, relevant, high-quality opportunities over quantity.\n- Return strict JSON only.`;
 
-  const response = await createOpenAIResponse<OpenAIResponse>({
+  const response = await createRefreshResponse({
     model,
     tools: [{ type: "web_search", search_context_size: "low" }],
     tool_choice: "required",
-    include: ["web_search_call.action.sources"],
     input: [
       { role: "system", content: "You are a careful internship cache refresh researcher. You validate URLs and reject weak or non-internship results." },
       { role: "user", content: prompt }
