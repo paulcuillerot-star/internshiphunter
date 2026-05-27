@@ -106,7 +106,7 @@ export default function ApplyPage() {
         <p className="text-sm font-semibold uppercase text-signal">Create your search</p>
         <h1 className="mt-3 text-4xl font-bold text-ink">Find your best internship direction in minutes.</h1>
         <p className="mt-3 text-ink/70">
-          The free result is based on your selected track, target market, languages and profile details. Your CV is stored for the later paid flow, but it is not parsed for the free match yet.
+          Only the essentials are required. The free result is based on your selected track, target market, languages and profile details. Your CV is stored for the later paid flow, but it is not parsed for the free match yet.
         </p>
       </div>
 
