@@ -3,6 +3,7 @@ import { refreshBucketOpportunities } from "@/lib/ai/cacheRefresh";
 import { hasOpenAIConfig } from "@/lib/openai";
 import { searchBuckets } from "@/lib/searchBuckets";
 import { hasSupabaseConfig, saveCachedBucketOpportunities, saveLog } from "@/lib/store";
+import type { SearchBucket } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -54,7 +55,7 @@ export async function POST(request: Request) {
   const body = await parseBody(request).catch(() => ({}));
   const requestedBucketIds = body.bucketIds?.length ? body.bucketIds : priorityBucketIds;
   const limit = body.limit ?? 2;
-  const buckets = requestedBucketIds.map((bucketId) => searchBuckets.find((bucket) => bucket.id === bucketId)).filter((bucket): bucket is NonNullable<typeof bucket> => Boolean(bucket));
+  const buckets = requestedBucketIds.map((bucketId) => searchBuckets.find((bucket) => bucket.id === bucketId)).filter((bucket): bucket is SearchBucket => Boolean(bucket));
   const missingBucketIds = requestedBucketIds.filter((bucketId) => !searchBuckets.some((bucket) => bucket.id === bucketId));
   const refreshRunId = crypto.randomUUID();
   const errors: Array<{ bucketId: string; error: string }> = [];
