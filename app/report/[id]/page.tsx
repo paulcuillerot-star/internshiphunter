@@ -13,14 +13,15 @@ export default async function ReportPage({ params }: { params: { id: string } })
   const report = await getReport(params.id);
   if (!report) notFound();
   const profile = await getProfile(report.profileId);
+  const visibleFreeOffers = report.freeOffers.slice(0, 1);
 
   return (
     <section className="section">
       <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-sm font-semibold uppercase text-signal">Free report</p>
-          <h1 className="mt-3 text-4xl font-bold text-ink">Your matched internship search track</h1>
-          <p className="mt-3 max-w-2xl text-ink/70">These are weekly examples from your closest matching track. They are cached examples, not live-verified offers.</p>
+          <h1 className="mt-3 text-4xl font-bold text-ink">A top opportunity for your profile</h1>
+          <p className="mt-3 max-w-2xl text-ink/70">Selected from your internship track based on your target market, selected tracks, languages and profile details. Cached examples are not live-verified offers.</p>
         </div>
         <Link href={`/premium/${report.id}`} className="inline-flex items-center justify-center rounded-md bg-signal px-5 py-3 text-sm font-bold text-white shadow-[0_18px_38px_rgba(15,118,110,0.26)] transition hover:bg-emerald-700">
           Unlock my personalized live search
@@ -53,7 +54,7 @@ export default async function ReportPage({ params }: { params: { id: string } })
       ) : null}
 
       <div className="mt-8 grid gap-5">
-        {report.freeOffers.map((offer) => <OfferCard key={offer.id} offer={offer} reportId={report.id} />)}
+        {visibleFreeOffers.map((offer) => <OfferCard key={offer.id} offer={offer} reportId={report.id} />)}
       </div>
 
       <div className="mt-10 grid gap-5 lg:grid-cols-[1fr_0.75fr]">
