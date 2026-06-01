@@ -180,14 +180,46 @@ async function createRefreshResponse(input: Record<string, unknown>) {
 
 export async function refreshBucketOpportunities(bucket: SearchBucket, refreshRunId: string, limit: number) {
   const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
-  const prompt = `Find 5-8 current internship or traineeship opportunities for business school students.\n\nBucket: ${bucket.id}\nCategory: ${bucket.category.name}\nRegion/market: ${bucket.region}\nTrack title: ${bucket.displayTitle}\n\nSearch like a strong human internship researcher: targeted queries, employer career pages, Greenhouse, Lever, Workday, Teamtailor, SmartRecruiters, Ashby and official job pages.\n\nRules:\n- Return only internships, traineeships, stages or student placements suitable for business school students.\n- Reject clearly unpaid internships. Accept paid, stipend, allowance, or compensation not specified if the employer/opportunity is strong. If compensation is not specified, include it as a risk.\n- Reject offers without a usable URL. Prefer direct employer or official ATS URLs. Avoid generic Google URLs. Avoid LinkedIn URLs.\n- Reject senior, full-time permanent or non-internship roles.\n- Reject expired roles when the deadline is clearly in the past.\n- Prioritize recent, relevant, high-quality opportunities over quantity.\n- Return strict JSON only.`;
+  const prompt = `Find 5-8 high-quality current internship, trainee, graduate internship or student placement opportunities for business school students.
+
+The goal is not to maximize quantity. The goal is to find opportunities that would make a student think: "this is genuinely relevant and attractive."
+
+Bucket:
+- id: ${bucket.id}
+- category: ${bucket.category.name}
+- region/market: ${bucket.region}
+- track title: ${bucket.displayTitle}
+
+Search strategy:
+- Search like a strong human internship researcher.
+- Prefer direct employer career pages and official ATS pages such as Greenhouse, Lever, Workday, Teamtailor, SmartRecruiters, Ashby or company job pages.
+- Prefer reputable companies, recognized organizations, strong brands, high-growth startups, sports organizations, international institutions, consulting firms, finance firms, tech companies, hospitality groups or other employers that business school students would consider attractive.
+- Prefer 4-6 month or 6-month internships when possible.
+- Prefer roles relevant to business school profiles: strategy, marketing, partnerships, sponsorship, sales, finance, operations, events, e-commerce, data/business analytics, project management or international business depending on the bucket.
+
+Strict rejection rules:
+- Reject clearly unpaid internships.
+- Accept paid, stipend, allowance, or compensation not specified if the employer/opportunity is strong.
+- If compensation is not specified, include this as a risk.
+- Reject any offer without a direct usable URL.
+- Reject generic search result URLs, LinkedIn search URLs, Google URLs or pages that are not an actual job/careers page.
+- Reject senior roles, manager roles, full-time permanent roles and non-internship roles.
+- Reject roles that are clearly expired.
+- Reject low-quality filler opportunities. It is better to return 1-2 strong opportunities than 8 mediocre ones.
+
+Output rules:
+- Return strict JSON only.
+- Every opportunity must include a direct URL.
+- Every opportunity must include why it matches the bucket.
+- Every opportunity must include risks, especially if compensation or deadline is unclear.
+- Scores should be realistic. Do not give 95+ scores unless the opportunity is exceptionally strong.`;
 
   const response = await createRefreshResponse({
     model,
     tools: [{ type: "web_search", search_context_size: "low" }],
     tool_choice: "required",
     input: [
-      { role: "system", content: "You are a careful internship cache refresh researcher. You validate URLs and reject weak or non-internship results." },
+      { role: "system", content: "You are a careful internship cache refresh researcher. You validate URLs and reject weak, expired, unpaid, senior or non-internship results. Quality matters more than quantity." },
       { role: "user", content: prompt }
     ],
     text: {
