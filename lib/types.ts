@@ -1,4 +1,5 @@
 export type FeedbackType = "relevant" | "not_relevant" | "expired" | "already_applied" | "wrong_country" | "wrong_role" | "too_senior" | "not_a_real_internship";
+export type CacheReviewStatus = "pending" | "approved" | "rejected";
 export type CandidateProfile = { id: string; firstName: string; email: string; cvFileUrl: string; cvText: string; targetCountries: string[]; targetCities: string[]; targetIndustries: string[]; desiredRoles: string[]; internshipStartDate: string; internshipDuration: string; languagesSpoken: string[]; minimumCompensation?: string; companiesAlreadyAppliedTo: string[]; idealInternshipDescription: string; thingsToAvoid: string; createdAt: string };
 export type SearchCategory = { id: string; name: string };
 export type SearchRegion = "Switzerland" | "Europe" | "Australia" | "Singapore" | "North America" | "Middle East" | "Asia-Pacific" | "International / Remote";
@@ -7,7 +8,7 @@ export type ScoredInternshipOffer = InternshipOffer & { matchScore: number; qual
 export type WeeklyFreeOffer = ScoredInternshipOffer & { isPremium: false };
 export type SearchBucket = { id: string; category: SearchCategory; region: SearchRegion; displayTitle: string; shortDescription: string; whyThisBucketFits: string; weeklyFreeOffers: WeeklyFreeOffer[]; fallbackBucketId: string };
 export type MatchedSearchBucket = { category: SearchCategory; region: SearchRegion; bucket: SearchBucket; explanation: string };
-export type CachedBucketOpportunity = ScoredInternshipOffer & { bucketId: string; category?: string; region?: string; isLiveVerified: boolean; verifiedAt?: string; expiresAt?: string; refreshRunId?: string; rawSources?: Array<{ url?: string; title?: string; snippet?: string }> };
+export type CachedBucketOpportunity = ScoredInternshipOffer & { bucketId: string; category?: string; region?: string; isLiveVerified: boolean; verifiedAt?: string; expiresAt?: string; refreshRunId?: string; rawSources?: Array<{ url?: string; title?: string; snippet?: string }>; reviewStatus: CacheReviewStatus; reviewedAt?: string; reviewedBy?: string; createdAt?: string };
 export type InternshipSearchReport = { id: string; profileId: string; status: "pending" | "completed" | "failed"; isPaid?: boolean; matchedSearch?: MatchedSearchBucket; freeOffers: ScoredInternshipOffer[]; premiumOffers: ScoredInternshipOffer[]; createdAt: string; updatedAt: string; errorMessage?: string };
 export type OfferFeedback = { id: string; reportId: string; offerId: string; feedbackType: FeedbackType; comment?: string; createdAt: string };
 export type AdminSearchLog = { id: string; profileId: string; reportId: string; status: "completed" | "failed"; querySummary: string; errorMessage?: string; rawResponse?: string; createdAt: string };

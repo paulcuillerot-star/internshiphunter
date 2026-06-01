@@ -164,7 +164,8 @@ function normalizeOpportunity(item: RefreshOpportunity, bucket: SearchBucket, re
     verifiedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString(),
     refreshRunId,
-    rawSources
+    rawSources,
+    reviewStatus: "pending"
   };
 }
 
@@ -180,39 +181,7 @@ async function createRefreshResponse(input: Record<string, unknown>) {
 
 export async function refreshBucketOpportunities(bucket: SearchBucket, refreshRunId: string, limit: number) {
   const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
-  const prompt = `Find 5-8 high-quality current internship, trainee, graduate internship or student placement opportunities for business school students.
-
-The goal is not to maximize quantity. The goal is to find opportunities that would make a student think: "this is genuinely relevant and attractive."
-
-Bucket:
-- id: ${bucket.id}
-- category: ${bucket.category.name}
-- region/market: ${bucket.region}
-- track title: ${bucket.displayTitle}
-
-Search strategy:
-- Search like a strong human internship researcher.
-- Prefer direct employer career pages and official ATS pages such as Greenhouse, Lever, Workday, Teamtailor, SmartRecruiters, Ashby or company job pages.
-- Prefer reputable companies, recognized organizations, strong brands, high-growth startups, sports organizations, international institutions, consulting firms, finance firms, tech companies, hospitality groups or other employers that business school students would consider attractive.
-- Prefer 4-6 month or 6-month internships when possible.
-- Prefer roles relevant to business school profiles: strategy, marketing, partnerships, sponsorship, sales, finance, operations, events, e-commerce, data/business analytics, project management or international business depending on the bucket.
-
-Strict rejection rules:
-- Reject clearly unpaid internships.
-- Accept paid, stipend, allowance, or compensation not specified if the employer/opportunity is strong.
-- If compensation is not specified, include this as a risk.
-- Reject any offer without a direct usable URL.
-- Reject generic search result URLs, LinkedIn search URLs, Google URLs or pages that are not an actual job/careers page.
-- Reject senior roles, manager roles, full-time permanent roles and non-internship roles.
-- Reject roles that are clearly expired.
-- Reject low-quality filler opportunities. It is better to return 1-2 strong opportunities than 8 mediocre ones.
-
-Output rules:
-- Return strict JSON only.
-- Every opportunity must include a direct URL.
-- Every opportunity must include why it matches the bucket.
-- Every opportunity must include risks, especially if compensation or deadline is unclear.
-- Scores should be realistic. Do not give 95+ scores unless the opportunity is exceptionally strong.`;
+  const prompt = `Find 5-8 high-quality current internship, trainee, graduate internship or student placement opportunities for business school students.\n\nThe goal is not to maximize quantity. The goal is to find opportunities that would make a student think: "this is genuinely relevant and attractive."\n\nBucket:\n- id: ${bucket.id}\n- category: ${bucket.category.name}\n- region/market: ${bucket.region}\n- track title: ${bucket.displayTitle}\n\nSearch strategy:\n- Search like a strong human internship researcher.\n- Prefer direct employer career pages and official ATS pages such as Greenhouse, Lever, Workday, Teamtailor, SmartRecruiters, Ashby or company job pages.\n- Prefer reputable companies, recognized organizations, strong brands, high-growth startups, sports organizations, international institutions, consulting firms, finance firms, tech companies, hospitality groups or other employers that business school students would consider attractive.\n- Prefer 4-6 month or 6-month internships when possible.\n- Prefer roles relevant to business school profiles: strategy, marketing, partnerships, sponsorship, sales, finance, operations, events, e-commerce, data/business analytics, project management or international business depending on the bucket.\n\nStrict rejection rules:\n- Reject clearly unpaid internships.\n- Accept paid, stipend, allowance, or compensation not specified if the employer/opportunity is strong.\n- If compensation is not specified, include this as a risk.\n- Reject any offer without a direct usable URL.\n- Reject generic search result URLs, LinkedIn search URLs, Google URLs or pages that are not an actual job/careers page.\n- Reject senior roles, manager roles, full-time permanent roles and non-internship roles.\n- Reject roles that are clearly expired.\n- Reject low-quality filler opportunities. It is better to return 1-2 strong opportunities than 8 mediocre ones.\n\nOutput rules:\n- Return strict JSON only.\n- Every opportunity must include a direct URL.\n- Every opportunity must include why it matches the bucket.\n- Every opportunity must include risks, especially if compensation or deadline is unclear.\n- Scores should be realistic. Do not give 95+ scores unless the opportunity is exceptionally strong.`;
 
   const response = await createRefreshResponse({
     model,

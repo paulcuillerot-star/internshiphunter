@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { listFeedback, listLogs, listReports, getProfile } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -29,8 +30,13 @@ export default async function AdminPage({ searchParams }: { searchParams: { pass
   return (
     <section className="section">
       <p className="text-sm font-semibold uppercase text-signal">Monitoring</p>
-      <h1 className="mt-3 text-4xl font-bold text-ink">Admin dashboard</h1>
-      <p className="mt-3 text-ink/70">For viewing searches, generated offers, feedback, payments and errors. No manual offer entry.</p>
+      <div className="mt-3 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="text-4xl font-bold text-ink">Admin dashboard</h1>
+          <p className="mt-3 text-ink/70">For viewing searches, generated offers, feedback, payments and errors. No manual offer entry.</p>
+        </div>
+        <Link className="rounded-md bg-signal px-4 py-2 text-sm font-bold text-white" href={`/admin/cache?password=${encodeURIComponent(searchParams.password ?? "")}`}>Review cache</Link>
+      </div>
 
       <div className="mt-8 grid gap-5">
         {reports.map((report, index) => {

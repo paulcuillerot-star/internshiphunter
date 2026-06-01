@@ -96,6 +96,9 @@ create table if not exists cached_bucket_opportunities (
   expires_at timestamptz,
   refresh_run_id text,
   raw_sources jsonb default '[]'::jsonb,
+  review_status text not null default 'pending',
+  reviewed_at timestamptz,
+  reviewed_by text,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
@@ -110,3 +113,4 @@ create index if not exists cached_bucket_opportunities_category_idx on cached_bu
 create index if not exists cached_bucket_opportunities_region_idx on cached_bucket_opportunities(region);
 create index if not exists cached_bucket_opportunities_verified_at_idx on cached_bucket_opportunities(verified_at desc);
 create index if not exists cached_bucket_opportunities_quality_score_idx on cached_bucket_opportunities(quality_score desc);
+create index if not exists cached_bucket_opportunities_review_status_idx on cached_bucket_opportunities(review_status);

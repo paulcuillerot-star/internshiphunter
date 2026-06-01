@@ -4,7 +4,7 @@ import path from "node:path";
 import { mockCandidateProfile, mockReport } from "./mockData";
 import { matchSearchBucket, searchBuckets } from "./searchBuckets";
 import { getSupabaseServerClient, hasSupabaseConfig } from "./supabase/server";
-import type { AdminSearchLog, CachedBucketOpportunity, CandidateProfile, InternshipSearchReport, MatchedSearchBucket, OfferFeedback, ScoredInternshipOffer, SearchRegion } from "./types";
+import type { AdminSearchLog, CachedBucketOpportunity, CacheReviewStatus, CandidateProfile, InternshipSearchReport, MatchedSearchBucket, OfferFeedback, ScoredInternshipOffer, SearchRegion } from "./types";
 
 const profiles = new Map<string, CandidateProfile>([[mockCandidateProfile.id, mockCandidateProfile]]);
 const reports = new Map<string, InternshipSearchReport>([[mockReport.id, mockReport]]);
@@ -109,7 +109,11 @@ function mapCachedOpportunityRow(row: Record<string, unknown>): CachedBucketOppo
     verifiedAt: row.verified_at ? String(row.verified_at) : undefined,
     expiresAt: row.expires_at ? String(row.expires_at) : undefined,
     refreshRunId: row.refresh_run_id ? String(row.refresh_run_id) : undefined,
-    rawSources: (row.raw_sources as CachedBucketOpportunity["rawSources"] | null) ?? []
+    rawSources: (row.raw_sources as CachedBucketOpportunity["rawSources"] | null) ?? [],
+    reviewStatus: (row.review_status as CacheReviewStatus | null) ?? "pending",
+    reviewedAt: row.reviewed_at ? String(row.reviewed_at) : undefined,
+    reviewedBy: row.reviewed_by ? String(row.reviewed_by) : undefined,
+    createdAt: row.created_at ? String(row.created_at) : undefined
   };
 }
 
@@ -146,6 +150,9 @@ function toCachedOpportunityRow(item: CachedBucketOpportunity) {
     expires_at: item.expiresAt,
     refresh_run_id: item.refreshRunId,
     raw_sources: item.rawSources ?? [],
+    review_status: item.reviewStatus ?? "pending",
+    reviewed_at: item.reviewedAt,
+    reviewed_by: item.reviewedBy,
     updated_at: new Date().toISOString()
   };
 }
@@ -235,7 +242,7 @@ export async function saveWeeklyFreeUsage(email: string, weekKey: string, report
 export async function saveCachedBucketOpportunities(items: CachedBucketOpportunity[]) {
   const supabase = getSupabaseServerClient();
   if (!supabase || !items.length) return 0;
-  const { error } = await supabase.from("cached_bucket_opportunities").insert(items.map(toCachedOpportunityRow));
+  const { error } = await supabase.from("cached_bucket_opportunities").insert(items.map((item) => toCachedOpportunityRow({ ...item, reviewStatus: item.reviewStatus ?? "pending" })));
   if (error) throw error;
   return items.length;
 }
@@ -248,9 +255,26 @@ export async function listCachedOpportunitiesForBucket(bucketId: string) {
   return (data ?? []).map((item) => mapCachedOpportunityRow(item));
 }
 
+export async function listCachedBucketOpportunities() {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return [];
+  const { data, error } = await supabase.from("cached_bucket_opportunities").select("*").order("created_at", { ascending: false }).limit(100);
+  if (error) throw error;
+  return (data ?? []).map((item) => mapCachedOpportunityRow(item));
+}
+
+export async function updateCachedOpportunityReviewStatus(id: string, status: CacheReviewStatus) {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return;
+  const now = new Date().toISOString();
+  const reviewed = status === "pending" ? { reviewed_at: null, reviewed_by: null } : { reviewed_at: now, reviewed_by: "admin" };
+  const { error } = await supabase.from("cached_bucket_opportunities").update({ review_status: status, ...reviewed, updated_at: now }).eq("id", id);
+  if (error) throw error;
+}
+
 export async function getBestCachedOpportunityForProfile(profile: CandidateProfile, matchedSearch: MatchedSearchBucket) {
   try {
-    const cached = (await listCachedOpportunitiesForBucket(matchedSearch.bucket.id)).filter((item) => !isExpired(item) && item.url);
+    const cached = (await listCachedOpportunitiesForBucket(matchedSearch.bucket.id)).filter((item) => item.reviewStatus === "approved" && !isExpired(item) && item.url);
     const bestCached = cached.sort((a, b) => scoreCachedOpportunity(b, profile, matchedSearch) - scoreCachedOpportunity(a, profile, matchedSearch))[0];
     return bestCached ?? bestOffer(matchedSearch.bucket.weeklyFreeOffers);
   } catch {
