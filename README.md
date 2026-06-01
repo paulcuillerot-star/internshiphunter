@@ -12,6 +12,7 @@ The product intentionally does not scrape LinkedIn and does not rely on manual o
 - Supabase persistence
 - OpenAI Responses API for protected admin cache refresh
 - Stripe checkout architecture
+- Sentry monitoring
 - Vercel-ready deployment
 
 ## Local Setup
@@ -26,7 +27,7 @@ Open `http://localhost:3000`.
 
 ## Environment Variables
 
-See `.env.example` for all supported variables. For Supabase persistence and cache refresh, configure:
+See `.env.example` for all supported variables. For Supabase persistence, cache refresh and monitoring, configure:
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=
@@ -34,9 +35,30 @@ SUPABASE_SERVICE_ROLE_KEY=
 OPENAI_API_KEY=
 OPENAI_MODEL=
 CACHE_REFRESH_SECRET=
+SENTRY_DSN=
+NEXT_PUBLIC_SENTRY_DSN=
+SENTRY_ENVIRONMENT=
+NEXT_PUBLIC_SENTRY_ENVIRONMENT=
+SENTRY_ORG=
+SENTRY_PROJECT=
+SENTRY_AUTH_TOKEN=
 ```
 
-`SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY`, and `CACHE_REFRESH_SECRET` are server-side only. Do not expose them in client components or browser code.
+`SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY`, `CACHE_REFRESH_SECRET`, and `SENTRY_AUTH_TOKEN` are server-side only. Do not expose them in client components or browser code. `NEXT_PUBLIC_SENTRY_DSN` is safe to expose because Sentry browser events need a public DSN.
+
+## Sentry Setup
+
+Sentry is configured through `@sentry/nextjs` for client, server and edge runtime monitoring. The admin cache refresh page and protected refresh API capture bucket-level refresh errors with Sentry context.
+
+To enable it:
+
+1. Create a Sentry project for the Next.js app.
+2. Add `SENTRY_DSN` and `NEXT_PUBLIC_SENTRY_DSN` locally and in Vercel.
+3. Add `SENTRY_ENVIRONMENT` and `NEXT_PUBLIC_SENTRY_ENVIRONMENT` if you want explicit environment labels.
+4. Add `SENTRY_ORG`, `SENTRY_PROJECT`, and `SENTRY_AUTH_TOKEN` in Vercel if you want source maps uploaded during production builds.
+5. Open `/admin/test-sentry?password=YOUR_ADMIN_PASSWORD` and send a test error.
+
+The `/admin/test-sentry` route uses the same simple `ADMIN_PASSWORD` protection as the admin dashboard.
 
 ## Supabase Setup
 
@@ -142,6 +164,7 @@ The refresh endpoint:
 - requires a specific live posting with a specific role title, company, location or clear remote/hybrid setup, direct posting URL and evidence applications are open
 - rejects clearly unpaid, senior, full-time, expired, LinkedIn or unusable-URL results
 - treats missing compensation, unclear deadlines and close-but-open deadlines as visible risk notes instead of automatic rejection
+- reports refresh exceptions to Sentry when Sentry is configured
 
 No automatic Vercel Cron is configured in this PR. A good manual review cadence is every 1-2 weeks, but refresh should happen only when the admin chooses to run it.
 
