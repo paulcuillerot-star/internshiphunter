@@ -1,51 +1,54 @@
 import type { CandidateProfile, MatchedSearchBucket, SearchBucket, SearchCategory, SearchRegion, WeeklyFreeOffer } from "./types";
 
 export const searchCategories: SearchCategory[] = [
-  ["consulting_strategy", "Consulting & Strategy"],
-  ["finance_investment", "Finance & Investment"],
-  ["audit_risk_transaction", "Audit, Risk & Transaction Services"],
-  ["marketing_brand", "Marketing & Brand Management"],
-  ["digital_growth", "Digital Marketing & Growth"],
-  ["sales_business_development", "Sales & Business Development"],
-  ["partnerships_sponsorship", "Partnerships & Sponsorship"],
-  ["event_operations", "Event Management & Operations"],
-  ["ecommerce_marketplace", "E-commerce & Marketplace"],
-  ["product_management", "Product Management"],
-  ["data_analytics", "Data Analytics & Business Intelligence"],
-  ["operations_project", "Operations & Project Management"],
-  ["supply_chain_procurement", "Supply Chain & Procurement"],
-  ["hr_talent", "Human Resources & Talent"],
-  ["entrepreneurship_venture", "Entrepreneurship & Venture Building"],
-  ["sustainability_csr", "Sustainability & CSR"],
-  ["luxury_fashion_retail", "Luxury, Fashion & Retail Management"],
-  ["hospitality_travel", "Hospitality, Tourism & Travel"],
-  ["sports_business", "Sports Business & Entertainment"],
-  ["international_business_export", "International Business & Export"]
+  ["sales_bd_partnerships", "Sales, Business Development & Partnerships"],
+  ["marketing_brand_growth", "Marketing, Brand & Growth"],
+  ["strategy_consulting_project_management", "Strategy, Consulting & Project Management"],
+  ["finance_investment_ma", "Finance, Investment & M&A"],
+  ["startup_founder_operations", "Startup, Founder Associate & Operations"],
+  ["product_tech_business_data", "Product, Tech Business & Data"],
+  ["luxury_retail_consumer_ecommerce", "Luxury, Retail, Consumer Goods & E-commerce"],
+  ["sports_events_entertainment_hospitality", "Sports, Events, Entertainment & Hospitality"]
 ].map(([id, name]) => ({ id, name }));
+
+export const internshipTrackLabels = searchCategories.map((category) => category.name);
+export const marketChoices = ["Europe", "International outside Europe"] as const;
 
 const categoryById = Object.fromEntries(searchCategories.map((item) => [item.id, item])) as Record<string, SearchCategory>;
 const categoryByName = Object.fromEntries(searchCategories.map((item) => [item.name.toLowerCase(), item])) as Record<string, SearchCategory>;
 
+const legacyCategoryAliases: Record<string, string> = {
+  "Consulting & Strategy": "strategy_consulting_project_management",
+  "Finance & Investment": "finance_investment_ma",
+  "Audit, Risk & Transaction Services": "finance_investment_ma",
+  "Marketing & Brand Management": "marketing_brand_growth",
+  "Digital Marketing & Growth": "marketing_brand_growth",
+  "Sales & Business Development": "sales_bd_partnerships",
+  "Partnerships & Sponsorship": "sales_bd_partnerships",
+  "Event Management & Operations": "sports_events_entertainment_hospitality",
+  "E-commerce & Marketplace": "luxury_retail_consumer_ecommerce",
+  "Product Management": "product_tech_business_data",
+  "Data Analytics & Business Intelligence": "product_tech_business_data",
+  "Operations & Project Management": "strategy_consulting_project_management",
+  "Supply Chain & Procurement": "startup_founder_operations",
+  "Human Resources & Talent": "startup_founder_operations",
+  "Entrepreneurship & Venture Building": "startup_founder_operations",
+  "Sustainability & CSR": "strategy_consulting_project_management",
+  "Luxury, Fashion & Retail Management": "luxury_retail_consumer_ecommerce",
+  "Hospitality, Tourism & Travel": "sports_events_entertainment_hospitality",
+  "Sports Business & Entertainment": "sports_events_entertainment_hospitality",
+  "International Business & Export": "sales_bd_partnerships"
+};
+
 const rules: Array<[string, string[]]> = [
-  ["partnerships_sponsorship", ["sponsorship", "sponsor", "partnership", "commercial rights"]],
-  ["event_operations", ["event", "operations", "matchday", "production"]],
-  ["sports_business", ["sport", "club", "federation", "league", "fan engagement"]],
-  ["consulting_strategy", ["consulting", "strategy", "transformation", "analyst"]],
-  ["finance_investment", ["finance", "m&a", "investment", "private equity", "asset management"]],
-  ["audit_risk_transaction", ["audit", "transaction", "risk", "compliance"]],
-  ["marketing_brand", ["marketing", "brand", "product marketing", "activation"]],
-  ["digital_growth", ["growth", "seo", "paid ads", "crm", "acquisition", "digital"]],
-  ["sales_business_development", ["business development", "sales", "account management", "commercial development"]],
-  ["ecommerce_marketplace", ["ecommerce", "marketplace", "e-retail", "merchandising"]],
-  ["product_management", ["product manager", "product owner", "roadmap", "user research"]],
-  ["data_analytics", ["data", "analytics", "bi", "dashboard", "reporting"]],
-  ["supply_chain_procurement", ["supply chain", "procurement", "logistics", "purchasing"]],
-  ["hr_talent", ["hr", "recruitment", "talent", "employer branding"]],
-  ["entrepreneurship_venture", ["startup", "founder associate", "venture", "incubator"]],
-  ["sustainability_csr", ["sustainability", "esg", "csr", "impact"]],
-  ["luxury_fashion_retail", ["luxury", "fashion", "retail", "buying"]],
-  ["hospitality_travel", ["hospitality", "tourism", "travel", "hotel"]],
-  ["international_business_export", ["export", "international trade", "market entry"]]
+  ["sales_bd_partnerships", ["sales", "business development", "partnership", "sponsorship", "commercial", "account management", "export", "market entry"]],
+  ["marketing_brand_growth", ["marketing", "brand", "growth", "seo", "paid ads", "crm", "acquisition", "activation", "content"]],
+  ["strategy_consulting_project_management", ["consulting", "strategy", "transformation", "project management", "analyst", "csr", "sustainability", "impact"]],
+  ["finance_investment_ma", ["finance", "investment", "m&a", "merger", "private equity", "asset management", "audit", "risk", "transaction", "compliance"]],
+  ["startup_founder_operations", ["startup", "founder associate", "venture", "incubator", "operations", "supply chain", "procurement", "talent", "recruitment"]],
+  ["product_tech_business_data", ["product", "tech", "data", "analytics", "bi", "dashboard", "reporting", "roadmap", "user research"]],
+  ["luxury_retail_consumer_ecommerce", ["luxury", "fashion", "retail", "consumer goods", "e-commerce", "ecommerce", "marketplace", "merchandising", "buying"]],
+  ["sports_events_entertainment_hospitality", ["sport", "sports", "event", "events", "entertainment", "hospitality", "tourism", "travel", "hotel", "matchday", "fan engagement"]]
 ];
 
 function profileText(profile: CandidateProfile) {
@@ -61,20 +64,16 @@ function any(value: string, words: string[]) {
 }
 
 function selectedCategories(profile: CandidateProfile): SearchCategory[] {
-  return profile.desiredRoles.map((role) => categoryByName[role.toLowerCase()]).filter((item): item is SearchCategory => Boolean(item));
+  return profile.desiredRoles
+    .map((role) => categoryByName[role.toLowerCase()] ?? categoryById[legacyCategoryAliases[role] ?? ""])
+    .filter((item): item is SearchCategory => Boolean(item));
 }
 
 export function detectSearchRegion(profile: CandidateProfile): SearchRegion {
   const value = marketText(profile);
-  if (any(value, ["switzerland", "geneva", "lausanne", "nyon", "zurich", "bern", "basel"])) return "Switzerland";
-  if (any(value, ["australia", "sydney", "melbourne"])) return "Australia";
-  if (any(value, ["singapore"])) return "Singapore";
-  if (any(value, ["usa", "united states", "canada", "new york", "toronto", "north america"])) return "North America";
-  if (any(value, ["uae", "united arab emirates", "dubai", "abu dhabi", "saudi", "qatar", "middle east"])) return "Middle East";
-  if (any(value, ["asia-pacific", "asia pacific", "hong kong", "japan", "korea", "thailand", "indonesia", "vietnam", "malaysia"])) return "Asia-Pacific";
-  if (any(value, ["france", "germany", "italy", "spain", "netherlands", "united kingdom", "uk", "ireland", "belgium", "luxembourg", "austria", "denmark", "sweden", "norway", "finland", "nordic", "europe"])) return "Europe";
-  if (any(value, ["international / remote", "remote", "international"])) return "International / Remote";
-  return "International / Remote";
+  if (any(value, ["international outside europe", "outside europe", "north america", "asia-pacific", "asia pacific", "middle east", "australia", "singapore", "usa", "united states", "canada", "dubai", "uae", "remote", "international"])) return "International outside Europe";
+  if (any(value, ["europe", "switzerland", "france", "germany", "italy", "spain", "netherlands", "united kingdom", "uk", "ireland", "belgium", "luxembourg", "austria", "denmark", "sweden", "norway", "finland", "geneva", "lausanne", "zurich", "bern", "basel"])) return "Europe";
+  return "Europe";
 }
 
 export function detectSearchCategory(profile: CandidateProfile): SearchCategory {
@@ -82,7 +81,7 @@ export function detectSearchCategory(profile: CandidateProfile): SearchCategory 
   if (selected[0]) return selected[0];
   const value = profileText(profile);
   const best = rules.map(([categoryId, words]) => ({ categoryId, score: words.filter((word) => value.includes(word)).length })).sort((a, b) => b.score - a.score)[0];
-  return best?.score ? categoryById[best.categoryId] : categoryById.marketing_brand;
+  return best?.score ? categoryById[best.categoryId] : categoryById.marketing_brand_growth;
 }
 
 function offer(id: string, title: string, company: string, city: string, country: string, summary: string, score = 82): WeeklyFreeOffer {
@@ -122,7 +121,7 @@ function bucket(id: string, categoryId: string, region: SearchRegion, title: str
     displayTitle: title,
     shortDescription: `${title} cached weekly examples.`,
     whyThisBucketFits: `This bucket matches ${categoryById[categoryId].name} interests in ${region}.`,
-    fallbackBucketId: "digital_growth_international",
+    fallbackBucketId: region === "Europe" ? "marketing_brand_growth_europe" : "marketing_brand_growth_international",
     weeklyFreeOffers: [
       offer(`${id}_1`, roleA, companyA, cityA, countryA, `Cached example for ${roleA} responsibilities in ${title}.`, 84),
       offer(`${id}_2`, roleB, companyB, cityB, countryB, `Cached example for ${roleB} responsibilities in ${title}.`, 82)
@@ -131,33 +130,37 @@ function bucket(id: string, categoryId: string, region: SearchRegion, title: str
 }
 
 export const searchBuckets: SearchBucket[] = [
-  bucket("consulting_strategy_europe", "consulting_strategy", "Europe", "Consulting & Strategy in Europe", "Roland Berger", "Munich", "Germany", "Strategy Analyst Intern", "BearingPoint", "Amsterdam", "Netherlands", "Transformation Intern"),
-  bucket("finance_investment_switzerland", "finance_investment", "Switzerland", "Finance & Investment in Switzerland", "Pictet", "Geneva", "Switzerland", "Investment Analyst Intern", "UBS", "Zurich", "Switzerland", "Corporate Finance Intern"),
-  bucket("marketing_brand_europe", "marketing_brand", "Europe", "Marketing & Brand in Europe", "Danone", "Paris", "France", "Brand Marketing Intern", "Philips", "Amsterdam", "Netherlands", "Product Marketing Intern"),
-  bucket("digital_growth_international", "digital_growth", "International / Remote", "Digital Growth International", "HubSpot", "Remote", "International / Remote", "Growth Marketing Intern", "Canva", "Remote", "International / Remote", "CRM Marketing Intern"),
-  bucket("sales_business_development_switzerland", "sales_business_development", "Switzerland", "Sales & Business Development in Switzerland", "Logitech", "Lausanne", "Switzerland", "Business Development Intern", "Kudelski Group", "Cheseaux", "Switzerland", "Sales Operations Intern"),
-  bucket("partnerships_sponsorship_switzerland", "partnerships_sponsorship", "Switzerland", "Partnerships & Sponsorship in Switzerland", "UEFA", "Nyon", "Switzerland", "Partnerships Intern", "Infront Sports & Media", "Zug", "Switzerland", "Sponsorship Marketing Intern"),
-  bucket("event_operations_europe", "event_operations", "Europe", "Event Operations in Europe", "RX Global", "London", "UK", "Event Operations Intern", "Messe Frankfurt", "Frankfurt", "Germany", "Marketing Events Intern"),
-  bucket("ecommerce_marketplace_europe", "ecommerce_marketplace", "Europe", "E-commerce & Marketplace in Europe", "Zalando", "Berlin", "Germany", "Marketplace Operations Intern", "L'Oreal", "Paris", "France", "E-commerce Merchandising Intern"),
-  bucket("data_analytics_europe", "data_analytics", "Europe", "Data Analytics in Europe", "Booking.com", "Amsterdam", "Netherlands", "Business Intelligence Intern", "Schneider Electric", "Grenoble", "France", "Data Analyst Intern"),
-  bucket("sports_business_switzerland", "sports_business", "Switzerland", "Sports Business in Switzerland", "FIFA", "Zurich", "Switzerland", "Sports Business Intern", "World Triathlon", "Lausanne", "Switzerland", "Marketing Intern, Sports Federation"),
-  bucket("hospitality_travel_australia", "hospitality_travel", "Australia", "Hospitality & Travel in Australia", "Destination NSW", "Sydney", "Australia", "Tourism Marketing Intern", "Accor", "Melbourne", "Australia", "Hotel Commercial Intern"),
-  bucket("tech_events_marketing_singapore", "marketing_brand", "Singapore", "Tech Events & Marketing in Singapore", "Salesforce", "Singapore", "Singapore", "Field Marketing Intern", "Stripe", "Singapore", "Singapore", "Community Events Intern"),
-  bucket("entrepreneurship_venture_international", "entrepreneurship_venture", "International / Remote", "Entrepreneurship & Venture International", "Entrepreneur First", "Remote", "International / Remote", "Founder Associate Intern", "Antler", "Remote", "International / Remote", "Venture Building Intern"),
-  bucket("sustainability_csr_europe", "sustainability_csr", "Europe", "Sustainability & CSR in Europe", "IKEA", "Delft", "Netherlands", "Sustainability Intern", "Schneider Electric Foundation", "Paris", "France", "CSR Project Intern"),
-  bucket("luxury_fashion_retail_europe", "luxury_fashion_retail", "Europe", "Luxury, Fashion & Retail in Europe", "LVMH", "Paris", "France", "Luxury Retail Marketing Intern", "Zara", "A Coruna", "Spain", "Merchandising Intern"),
-  bucket("international_business_export_europe", "international_business_export", "Europe", "International Business & Export in Europe", "Business France", "Paris", "France", "Export Business Intern", "Bosch", "Stuttgart", "Germany", "International Sales Intern")
+  bucket("sales_bd_partnerships_europe", "sales_bd_partnerships", "Europe", "Sales, Business Development & Partnerships in Europe", "Decathlon", "Lille", "France", "Business Development Intern", "UEFA", "Nyon", "Switzerland", "Partnerships Intern"),
+  bucket("marketing_brand_growth_europe", "marketing_brand_growth", "Europe", "Marketing, Brand & Growth in Europe", "Danone", "Paris", "France", "Brand Marketing Intern", "Philips", "Amsterdam", "Netherlands", "Growth Marketing Intern"),
+  bucket("strategy_consulting_project_management_europe", "strategy_consulting_project_management", "Europe", "Strategy, Consulting & Project Management in Europe", "Roland Berger", "Munich", "Germany", "Strategy Analyst Intern", "BearingPoint", "Amsterdam", "Netherlands", "Transformation Project Intern"),
+  bucket("finance_investment_ma_europe", "finance_investment_ma", "Europe", "Finance, Investment & M&A in Europe", "BNP Paribas", "Paris", "France", "M&A Analyst Intern", "Pictet", "Geneva", "Switzerland", "Investment Analyst Intern"),
+  bucket("startup_founder_operations_europe", "startup_founder_operations", "Europe", "Startup, Founder Associate & Operations in Europe", "Entrepreneur First", "London", "United Kingdom", "Founder Associate Intern", "Back Market", "Paris", "France", "Operations Intern"),
+  bucket("product_tech_business_data_europe", "product_tech_business_data", "Europe", "Product, Tech Business & Data in Europe", "Booking.com", "Amsterdam", "Netherlands", "Business Analytics Intern", "Miro", "Berlin", "Germany", "Product Operations Intern"),
+  bucket("luxury_retail_consumer_ecommerce_europe", "luxury_retail_consumer_ecommerce", "Europe", "Luxury, Retail, Consumer Goods & E-commerce in Europe", "LVMH", "Paris", "France", "Retail Marketing Intern", "Zalando", "Berlin", "Germany", "Marketplace Operations Intern"),
+  bucket("sports_events_entertainment_hospitality_europe", "sports_events_entertainment_hospitality", "Europe", "Sports, Events, Entertainment & Hospitality in Europe", "FIFA", "Zurich", "Switzerland", "Sports Business Intern", "Accor", "Paris", "France", "Hospitality Commercial Intern"),
+  bucket("sales_bd_partnerships_international", "sales_bd_partnerships", "International outside Europe", "Sales, Business Development & Partnerships International", "Salesforce", "Singapore", "Singapore", "Business Development Intern", "Infront Sports & Media", "Singapore", "Singapore", "Sponsorship Sales Intern"),
+  bucket("marketing_brand_growth_international", "marketing_brand_growth", "International outside Europe", "Marketing, Brand & Growth International", "Canva", "Sydney", "Australia", "Growth Marketing Intern", "HubSpot", "Remote", "International", "CRM Marketing Intern"),
+  bucket("strategy_consulting_project_management_international", "strategy_consulting_project_management", "International outside Europe", "Strategy, Consulting & Project Management International", "Deloitte", "Dubai", "United Arab Emirates", "Strategy Consulting Intern", "Bain & Company", "Singapore", "Singapore", "Associate Consultant Intern"),
+  bucket("finance_investment_ma_international", "finance_investment_ma", "International outside Europe", "Finance, Investment & M&A International", "Macquarie Group", "Sydney", "Australia", "Investment Banking Intern", "DBS Bank", "Singapore", "Singapore", "Corporate Finance Intern"),
+  bucket("startup_founder_operations_international", "startup_founder_operations", "International outside Europe", "Startup, Founder Associate & Operations International", "Antler", "Singapore", "Singapore", "Venture Building Intern", "Airwallex", "Melbourne", "Australia", "Operations Intern"),
+  bucket("product_tech_business_data_international", "product_tech_business_data", "International outside Europe", "Product, Tech Business & Data International", "Atlassian", "Sydney", "Australia", "Product Analyst Intern", "Grab", "Singapore", "Singapore", "Business Intelligence Intern"),
+  bucket("luxury_retail_consumer_ecommerce_international", "luxury_retail_consumer_ecommerce", "International outside Europe", "Luxury, Retail, Consumer Goods & E-commerce International", "Lululemon", "Vancouver", "Canada", "Retail Operations Intern", "Shopee", "Singapore", "Singapore", "E-commerce Campaign Intern"),
+  bucket("sports_events_entertainment_hospitality_international", "sports_events_entertainment_hospitality", "International outside Europe", "Sports, Events, Entertainment & Hospitality International", "IMG", "New York", "United States", "Sports Partnerships Intern", "Marriott", "Dubai", "United Arab Emirates", "Hospitality Marketing Intern")
 ];
 
+export const priorityBucketIds = searchBuckets.map((bucketItem) => bucketItem.id);
+
 const bucketsById = Object.fromEntries(searchBuckets.map((item) => [item.id, item])) as Record<string, SearchBucket>;
-const suffix: Record<SearchRegion, string> = { Switzerland: "switzerland", Europe: "europe", Australia: "australia", Singapore: "singapore", "North America": "north_america", "Middle East": "middle_east", "Asia-Pacific": "asia_pacific", "International / Remote": "international" };
+const suffix: Record<"Europe" | "International outside Europe", string> = { Europe: "europe", "International outside Europe": "international" };
 
 function bucketIdFor(categoryId: string, region: SearchRegion) {
-  return categoryId === "marketing_brand" && region === "Singapore" ? "tech_events_marketing_singapore" : `${categoryId}_${suffix[region]}`;
+  const normalizedRegion = region === "Europe" ? "Europe" : "International outside Europe";
+  return `${categoryId}_${suffix[normalizedRegion]}`;
 }
 
 function fallbackBucket(categoryId: string, region: SearchRegion) {
-  return searchBuckets.find((item) => item.category.id === categoryId) ?? searchBuckets.find((item) => item.region === region) ?? bucketsById.digital_growth_international;
+  const normalizedRegion = region === "Europe" ? "Europe" : "International outside Europe";
+  return searchBuckets.find((item) => item.category.id === categoryId && item.region === normalizedRegion) ?? searchBuckets.find((item) => item.region === normalizedRegion) ?? bucketsById.marketing_brand_growth_europe;
 }
 
 export function matchSearchBucket(profile: CandidateProfile): MatchedSearchBucket {
