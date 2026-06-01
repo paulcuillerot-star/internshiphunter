@@ -73,16 +73,35 @@ The CV upload is still required and stored for the later paid flow, but it is no
 
 ## Protected OpenAI Cache Refresh
 
-OpenAI is only used by the protected admin endpoint:
+OpenAI is only used by the protected admin endpoint. Cache refresh is fully manual: an admin triggers it, reviews the saved opportunities in Supabase or the admin monitoring flow, and reruns it if the results are not good enough.
+
+The endpoint is:
+
+```text
+POST /api/admin/refresh-cache
+```
+
+It requires `x-cache-refresh-secret` to match `CACHE_REFRESH_SECRET`. For manual browser testing, the route also accepts `?secret=...`, but the header is preferred.
+
+Refresh one bucket manually:
 
 ```bash
 curl -X POST "https://your-domain.com/api/admin/refresh-cache" \
   -H "Content-Type: application/json" \
   -H "x-cache-refresh-secret: $CACHE_REFRESH_SECRET" \
-  -d '{"bucketIds":["sports_business_switzerland"],"limit":2}'
+  -d '{"bucketIds":["sports_business_switzerland"],"limit":1}'
 ```
 
-For manual browser or cron testing, the route also accepts `?secret=...`, but the header is preferred.
+Refresh all priority buckets manually:
+
+```bash
+curl -X POST "https://your-domain.com/api/admin/refresh-cache" \
+  -H "Content-Type: application/json" \
+  -H "x-cache-refresh-secret: $CACHE_REFRESH_SECRET" \
+  -d '{"limit":1}'
+```
+
+If `bucketIds` is omitted, the endpoint refreshes all priority buckets. If `bucketIds` is provided, it refreshes only those buckets.
 
 The refresh endpoint:
 
@@ -90,10 +109,10 @@ The refresh endpoint:
 - searches by bucket/track/market, not by individual free user
 - stores validated results in `cached_bucket_opportunities`
 - saves only the best 1 or 2 opportunities per bucket
-- marks opportunities as live verified with a 14-day expiry
+- marks opportunities as live verified and sets `expires_at` 14 days ahead as a freshness indicator
 - rejects clearly unpaid, senior, full-time, expired, LinkedIn or unusable-URL results
 
-Recommended cadence: refresh priority buckets every 14 days. Manual refresh is enough for now; Vercel Cron can be configured later to call the protected endpoint.
+No automatic Vercel Cron is configured in this PR. A good manual review cadence is every 1-2 weeks, but refresh should happen only when the admin chooses to run it. Admin review is expected before relying on refreshed cached opportunities.
 
 ## Future OpenAI Live Search
 
@@ -103,16 +122,15 @@ The server-side OpenAI architecture remains in the repo for the future paid flow
 
 - Real persistence requires Supabase setup.
 - Free usage tracking only works when Supabase env vars are configured.
-- OpenAI is available only for protected admin cache refresh, not normal free submissions.
+- OpenAI is available only for protected manual admin cache refresh, not normal free submissions.
 - Premium live search is not implemented yet.
 - CV text extraction is basic/mock in this version.
-- Cache quality depends on refresh prompts and available web results.
+- Cache quality depends on refresh prompts, available web results and admin review.
 - LinkedIn scraping is intentionally not supported.
 
 ## Next Steps
 
 - Add real PDF text extraction and CV storage.
 - Add a real paid live search flow after premium unlock.
-- Configure Vercel Cron for 14-day cache refreshes.
 - Improve admin monitoring with cache refresh history and filters.
 - Add tests for Supabase persistence, cache selection and weekly free usage limits.
