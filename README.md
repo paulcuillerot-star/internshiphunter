@@ -122,7 +122,10 @@ The refresh endpoint:
 - stores validated results in `cached_bucket_opportunities`
 - saves only the best 1 or 2 opportunities per bucket
 - marks opportunities as live verified, pending review, and sets `expires_at` 14 days ahead as a freshness indicator
+- rejects generic career pages, generic internship program pages, talent community pages, search result pages and company careers homepages
+- requires a specific live posting with a specific role title, company, location or clear remote/hybrid setup, direct posting URL and evidence applications are open
 - rejects clearly unpaid, senior, full-time, expired, LinkedIn or unusable-URL results
+- treats missing compensation, unclear deadlines and close-but-open deadlines as visible risk notes instead of automatic rejection
 
 No automatic Vercel Cron is configured in this PR. A good manual review cadence is every 1-2 weeks, but refresh should happen only when the admin chooses to run it.
 

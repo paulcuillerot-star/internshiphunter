@@ -72,6 +72,9 @@ const responseSchema = {
   }
 };
 
+const genericCareerPaths = new Set(["/careers", "/jobs", "/students", "/internships", "/early-careers", "/graduates"]);
+const specificJobUrlSignal = /gh_jid|job[-_]?id|jobid|requisition|req[-_]?id|posting|position|vacancy|ashby_jid/i;
+
 function textFromResponse(response: OpenAIResponse) {
   if (response.output_text) return response.output_text;
   return response.output?.flatMap((item) => item.content ?? []).map((item) => item.text ?? "").join("\n") ?? "";
@@ -107,6 +110,49 @@ function isUsableUrl(url: string) {
   }
 }
 
+function isGenericCareerPathOnly(url: string) {
+  try {
+    const parsed = new URL(url);
+    const path = parsed.pathname.toLowerCase().replace(/\/+$/, "") || "/";
+    if (!genericCareerPaths.has(path)) return false;
+    return !specificJobUrlSignal.test(parsed.search);
+  } catch {
+    return true;
+  }
+}
+
+function isGenericCareerPage(item: RefreshOpportunity) {
+  const title = item.title.toLowerCase().trim();
+  const genericTitlePatterns = [
+    /^internships? at\b/,
+    /^internship opportunities\b/,
+    /^students? and graduates?\b/,
+    /^early careers?\b/,
+    /^careers?\b/,
+    /^jobs at\b/,
+    /^open positions?\b/,
+    /^graduate opportunities?\b/
+  ];
+
+  if (genericTitlePatterns.some((pattern) => pattern.test(title))) return true;
+  if (isGenericCareerPathOnly(item.url)) return true;
+
+  const combined = `${item.title} ${item.source} ${item.descriptionSummary} ${item.rawSourceSnippet}`.toLowerCase();
+  return /talent community|job search results|search results|careers homepage|career homepage|generic internship program|students and graduates|early careers|open positions/.test(combined);
+}
+
+function hasOpenApplicationEvidence(item: RefreshOpportunity) {
+  const text = `${item.source} ${item.descriptionSummary} ${item.requirementsSummary} ${item.rawSourceSnippet}`.toLowerCase();
+  if (/apply now|apply online|apply by|applications? open|currently open|closing date|deadline|posted|job id|requisition|vacancy/.test(text)) return true;
+
+  try {
+    const host = new URL(item.url).hostname.toLowerCase();
+    return /greenhouse|lever|workday|teamtailor|smartrecruiters|ashbyhq|jobs\.ashby|successfactors|bamboohr/.test(host) && !isGenericCareerPathOnly(item.url);
+  } catch {
+    return false;
+  }
+}
+
 function isClearlyUnpaid(value: string) {
   const text = value.toLowerCase();
   return /unpaid|no compensation|volunteer|benevol/.test(text);
@@ -114,7 +160,7 @@ function isClearlyUnpaid(value: string) {
 
 function isClearlyNotInternship(item: RefreshOpportunity) {
   const text = `${item.title} ${item.descriptionSummary} ${item.requirementsSummary}`.toLowerCase();
-  if (!/intern|internship|trainee|traineeship|stage|praktikum/.test(text)) return true;
+  if (!/intern|internship|trainee|traineeship|stage|praktikum|student placement|graduate internship/.test(text)) return true;
   return /senior|director|head of|lead\b|principal|full-time permanent|permanent role/.test(text);
 }
 
@@ -123,14 +169,33 @@ function deadlineIsPast(deadline: string) {
   return Number.isFinite(parsed) && parsed < Date.now();
 }
 
+function deadlineRisk(deadline: string, now: Date) {
+  const trimmed = deadline.trim();
+  const parsed = Date.parse(trimmed);
+  if (!trimmed || !Number.isFinite(parsed)) return "Deadline unclear; verify before applying.";
+  const daysUntilDeadline = (parsed - now.getTime()) / (24 * 60 * 60 * 1000);
+  if (daysUntilDeadline >= 0 && daysUntilDeadline <= 7) return "Deadline is close; apply quickly.";
+  return null;
+}
+
 function normalizeOpportunity(item: RefreshOpportunity, bucket: SearchBucket, refreshRunId: string, now: Date, rawSources: CachedBucketOpportunity["rawSources"]): CachedBucketOpportunity | null {
+  if (!item.title?.trim() || !item.company?.trim()) return null;
+  if (!item.location?.trim() && !item.country?.trim() && !item.city?.trim()) return null;
   if (!item.url || !isUsableUrl(item.url)) return null;
+  if (isGenericCareerPage(item)) return null;
+  if (!hasOpenApplicationEvidence(item)) return null;
   if (isClearlyUnpaid(`${item.compensation} ${item.rawSourceSnippet}`)) return null;
   if (isClearlyNotInternship(item)) return null;
   if (deadlineIsPast(item.deadline)) return null;
 
   const risks = [...(item.risks ?? [])];
-  if (!item.compensation || /not specified|not listed|unknown|n\/a/i.test(item.compensation)) risks.push("Compensation is not specified; confirm before applying.");
+  const addRisk = (risk: string) => {
+    if (!risks.some((existing) => existing.toLowerCase() === risk.toLowerCase())) risks.push(risk);
+  };
+
+  if (!item.compensation || /not specified|not listed|unknown|n\/a/i.test(item.compensation)) addRisk("Compensation not specified; confirm before applying.");
+  const dateRisk = deadlineRisk(item.deadline, now);
+  if (dateRisk) addRisk(dateRisk);
 
   return {
     id: crypto.randomUUID(),
@@ -181,14 +246,14 @@ async function createRefreshResponse(input: Record<string, unknown>) {
 
 export async function refreshBucketOpportunities(bucket: SearchBucket, refreshRunId: string, limit: number) {
   const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
-  const prompt = `Find 5-8 high-quality current internship, trainee, graduate internship or student placement opportunities for business school students.\n\nThe goal is not to maximize quantity. The goal is to find opportunities that would make a student think: "this is genuinely relevant and attractive."\n\nBucket:\n- id: ${bucket.id}\n- category: ${bucket.category.name}\n- region/market: ${bucket.region}\n- track title: ${bucket.displayTitle}\n\nSearch strategy:\n- Search like a strong human internship researcher.\n- Prefer direct employer career pages and official ATS pages such as Greenhouse, Lever, Workday, Teamtailor, SmartRecruiters, Ashby or company job pages.\n- Prefer reputable companies, recognized organizations, strong brands, high-growth startups, sports organizations, international institutions, consulting firms, finance firms, tech companies, hospitality groups or other employers that business school students would consider attractive.\n- Prefer 4-6 month or 6-month internships when possible.\n- Prefer roles relevant to business school profiles: strategy, marketing, partnerships, sponsorship, sales, finance, operations, events, e-commerce, data/business analytics, project management or international business depending on the bucket.\n\nStrict rejection rules:\n- Reject clearly unpaid internships.\n- Accept paid, stipend, allowance, or compensation not specified if the employer/opportunity is strong.\n- If compensation is not specified, include this as a risk.\n- Reject any offer without a direct usable URL.\n- Reject generic search result URLs, LinkedIn search URLs, Google URLs or pages that are not an actual job/careers page.\n- Reject senior roles, manager roles, full-time permanent roles and non-internship roles.\n- Reject roles that are clearly expired.\n- Reject low-quality filler opportunities. It is better to return 1-2 strong opportunities than 8 mediocre ones.\n\nOutput rules:\n- Return strict JSON only.\n- Every opportunity must include a direct URL.\n- Every opportunity must include why it matches the bucket.\n- Every opportunity must include risks, especially if compensation or deadline is unclear.\n- Scores should be realistic. Do not give 95+ scores unless the opportunity is exceptionally strong.`;
+  const prompt = `Find 5-8 high-quality current internship, trainee, graduate internship or student placement opportunities for business school students.\n\nThe goal is not to maximize quantity. The goal is to find opportunities that would make a student think: "this is genuinely relevant and attractive."\n\nBucket:\n- id: ${bucket.id}\n- category: ${bucket.category.name}\n- region/market: ${bucket.region}\n- track title: ${bucket.displayTitle}\n\nSearch strategy:\n- Search like a strong human internship researcher.\n- Prefer direct employer career pages and official ATS pages such as Greenhouse, Lever, Workday, Teamtailor, SmartRecruiters, Ashby or company job pages.\n- Prefer reputable companies, recognized organizations, strong brands, high-growth startups, sports organizations, international institutions, consulting firms, finance firms, tech companies, hospitality groups or other employers that business school students would consider attractive.\n- Prefer 4-6 month or 6-month internships when possible.\n- Prefer roles relevant to business school profiles: strategy, marketing, partnerships, sponsorship, sales, finance, operations, events, e-commerce, data/business analytics, project management or international business depending on the bucket.\n\nStrict rejection rules:\n- Reject generic career pages, generic internship program pages, talent community pages, job search result pages and company careers homepages.\n- Reject vague pages titled like "Internships at Company", "Students and graduates", "Early careers", "Careers", "Jobs at Company", "Open positions" or "Graduate opportunities".\n- Reject any opportunity that does not have a specific role title, a specific company, a specific location or clear remote/hybrid location, a direct URL to the specific job posting, and evidence that applications are currently open.\n- Reject clearly unpaid internships.\n- Accept paid, stipend, allowance, or compensation not specified if the employer/opportunity is strong.\n- If compensation is not specified, include exactly this risk: "Compensation not specified; confirm before applying."\n- Reject any offer without a direct usable URL.\n- Reject generic search result URLs, LinkedIn search URLs, Google URLs or pages that are not an actual specific job posting.\n- Reject senior roles, manager roles, full-time permanent roles and non-internship roles.\n- Reject roles where the deadline is clearly in the past.\n- Do not reject or downgrade an opportunity only because the deadline is close if applications are still open. Add exactly this risk instead: "Deadline is close; apply quickly."\n- If the deadline is unclear, accept only if the URL is a specific job posting and the opportunity is strong. Add exactly this risk: "Deadline unclear; verify before applying."\n- Reject low-quality filler opportunities. It is better to return 1-2 strong opportunities than 8 mediocre ones.\n\nScore calibration:\n- Do not give very high scores to vague or generic opportunities. Reject them instead.\n- Quality score above 90 requires a direct specific job posting URL, clearly open application, strong employer, strong bucket fit, and clear internship/trainee/student placement status.\n- Do not cap quality score only because a still-open deadline is close.\n\nOutput rules:\n- Return strict JSON only.\n- Every opportunity must include a direct URL to a specific job posting.\n- Every opportunity must include why it matches the bucket.\n- Every opportunity must include risks, especially if compensation or deadline is unclear.\n- Scores should be realistic. Do not give 95+ scores unless the opportunity is exceptionally strong.`;
 
   const response = await createRefreshResponse({
     model,
     tools: [{ type: "web_search", search_context_size: "low" }],
     tool_choice: "required",
     input: [
-      { role: "system", content: "You are a careful internship cache refresh researcher. You validate URLs and reject weak, expired, unpaid, senior or non-internship results. Quality matters more than quantity." },
+      { role: "system", content: "You are a careful internship cache refresh researcher. You validate URLs and reject generic pages, weak, expired, unpaid, senior or non-internship results. Quality matters more than quantity." },
       { role: "user", content: prompt }
     ],
     text: {
