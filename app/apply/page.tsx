@@ -2,32 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-
-const internshipTracks = [
-  "Consulting & Strategy",
-  "Finance & Investment",
-  "Audit, Risk & Transaction Services",
-  "Marketing & Brand Management",
-  "Digital Marketing & Growth",
-  "Sales & Business Development",
-  "Partnerships & Sponsorship",
-  "Event Management & Operations",
-  "E-commerce & Marketplace",
-  "Product Management",
-  "Data Analytics & Business Intelligence",
-  "Operations & Project Management",
-  "Supply Chain & Procurement",
-  "Human Resources & Talent",
-  "Entrepreneurship & Venture Building",
-  "Sustainability & CSR",
-  "Luxury, Fashion & Retail Management",
-  "Hospitality, Tourism & Travel",
-  "Sports Business & Entertainment",
-  "International Business & Export"
-];
-
-const regionChoices = ["Europe", "North America", "Asia-Pacific", "Middle East", "International / Remote"];
-const countryChoices = ["Switzerland", "France", "Germany", "Netherlands", "Belgium", "Luxembourg", "United Kingdom", "Ireland", "Spain", "Italy", "Austria", "Denmark", "Sweden", "Norway", "Finland", "United States", "Canada", "Australia", "Singapore", "United Arab Emirates"];
+import { internshipTrackLabels, marketChoices } from "@/lib/searchBuckets";
 
 function FieldLabel({ children, required }: { children: string; required?: boolean }) {
   return (
@@ -56,7 +31,6 @@ export default function ApplyPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [selectedTracks, setSelectedTracks] = useState<string[]>([]);
-  const [targetMode, setTargetMode] = useState<"region" | "countries">("region");
   const [selectedMarkets, setSelectedMarkets] = useState<string[]>([]);
 
   function toggleTrack(track: string) {
@@ -64,12 +38,7 @@ export default function ApplyPage() {
   }
 
   function toggleMarket(market: string) {
-    setSelectedMarkets((current) => current.includes(market) ? current.filter((item) => item !== market) : [...current, market]);
-  }
-
-  function changeTargetMode(mode: "region" | "countries") {
-    setTargetMode(mode);
-    setSelectedMarkets([]);
+    setSelectedMarkets((current) => current.includes(market) ? current.filter((item) => item !== market) : [market]);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -82,7 +51,7 @@ export default function ApplyPage() {
 
     if (!data.get("email") || !data.get("cv") || !selectedMarkets.length || !selectedTracks.length) {
       setLoading(false);
-      setError("Email, CV, at least one target market and at least one internship track are required.");
+      setError("Email, CV, one target market and at least one internship track are required.");
       return;
     }
 
@@ -97,8 +66,6 @@ export default function ApplyPage() {
     const result = (await response.json()) as { reportId: string };
     router.push(`/report/${result.reportId}`);
   }
-
-  const marketChoices = targetMode === "region" ? regionChoices : countryChoices;
 
   return (
     <section className="section">
@@ -128,8 +95,8 @@ export default function ApplyPage() {
           <FieldLabel required>What kind of internship are you looking for?</FieldLabel>
           <p className="text-sm text-ink/60">Choose up to 2 tracks.</p>
           <input type="hidden" name="desiredRoles" value={selectedTracks.join(",")} />
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {internshipTracks.map((track) => (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {internshipTrackLabels.map((track) => (
               <ToggleButton key={track} label={track} selected={selectedTracks.includes(track)} disabled={selectedTracks.length >= 2} onClick={() => toggleTrack(track)} />
             ))}
           </div>
@@ -137,12 +104,9 @@ export default function ApplyPage() {
 
         <section className="grid gap-3">
           <FieldLabel required>Target market</FieldLabel>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => changeTargetMode("region")} className={`rounded-md px-4 py-2 text-sm font-bold ${targetMode === "region" ? "bg-signal text-white" : "border border-line bg-white text-ink"}`}>Region</button>
-            <button type="button" onClick={() => changeTargetMode("countries")} className={`rounded-md px-4 py-2 text-sm font-bold ${targetMode === "countries" ? "bg-signal text-white" : "border border-line bg-white text-ink"}`}>Specific countries</button>
-          </div>
+          <p className="text-sm text-ink/60">Choose the market you want us to match first.</p>
           <input type="hidden" name="targetCountries" value={selectedMarkets.join(",")} />
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-2 sm:grid-cols-2">
             {marketChoices.map((market) => (
               <ToggleButton key={market} label={market} selected={selectedMarkets.includes(market)} onClick={() => toggleMarket(market)} />
             ))}
