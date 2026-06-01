@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/nextjs";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -30,6 +31,13 @@ async function refreshCacheAction(formData: FormData) {
   let refreshedCount = 0;
   let errorCount = 0;
 
+  Sentry.addBreadcrumb({
+    category: "admin-cache-refresh",
+    message: "Admin cache page refresh started",
+    level: "info",
+    data: { refreshRunId, bucketCount: bucketIds.length, limit }
+  });
+
   for (const bucketId of bucketIds) {
     const bucket = searchBuckets.find((item) => item.id === bucketId);
     if (!bucket) { errorCount += 1; continue; }
@@ -42,6 +50,10 @@ async function refreshCacheAction(formData: FormData) {
     } catch (error) {
       errorCount += 1;
       const message = error instanceof Error ? error.message : "Unknown refresh error";
+      Sentry.captureException(error, {
+        tags: { feature: "admin-cache-refresh-page", bucketId: bucket.id },
+        extra: { refreshRunId, limit, bucketId: bucket.id }
+      });
       await saveLog({ id: crypto.randomUUID(), profileId: "", reportId: "", status: "failed", querySummary: `Admin cache page refresh ${refreshRunId} failed for ${bucket.id}.`, errorMessage: message, createdAt: new Date().toISOString() }).catch(() => undefined);
     }
   }
