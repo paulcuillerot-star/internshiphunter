@@ -26,6 +26,7 @@ export default async function AdminPage({ searchParams }: { searchParams: { pass
 
   const [reports, feedback, logs] = await Promise.all([listReports(), listFeedback(), listLogs()]);
   const reportProfiles = await Promise.all(reports.map((report) => getProfile(report.profileId)));
+  const adminPasswordQuery = encodeURIComponent(searchParams.password ?? "");
 
   return (
     <section className="section">
@@ -35,7 +36,10 @@ export default async function AdminPage({ searchParams }: { searchParams: { pass
           <h1 className="text-4xl font-bold text-ink">Admin dashboard</h1>
           <p className="mt-3 text-ink/70">For viewing searches, generated offers, feedback, payments and errors. No manual offer entry.</p>
         </div>
-        <Link className="rounded-md bg-signal px-4 py-2 text-sm font-bold text-white" href={`/admin/cache?password=${encodeURIComponent(searchParams.password ?? "")}`}>Review cache</Link>
+        <div className="flex flex-wrap gap-3">
+          <Link className="rounded-md bg-signal px-4 py-2 text-sm font-bold text-white" href={`/admin/cache?password=${adminPasswordQuery}`}>Review cache</Link>
+          <Link className="rounded-md border border-line bg-white px-4 py-2 text-sm font-bold text-ink" href={`/admin/test-sentry?password=${adminPasswordQuery}`}>Test Sentry</Link>
+        </div>
       </div>
 
       <div className="mt-8 grid gap-5">
