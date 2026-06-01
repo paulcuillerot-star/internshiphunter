@@ -54,11 +54,11 @@ const responseSchema = {
           source: { type: "string" },
           deadline: { type: "string" },
           publishedDate: { type: "string" },
-          descriptionSummary: { type: "string" },
-          requirementsSummary: { type: "string" },
+          descriptionSummary: { type: "string", maxLength: 300 },
+          requirementsSummary: { type: "string", maxLength: 300 },
           compensation: { type: "string" },
           languageRequirements: { type: "array", items: { type: "string" } },
-          rawSourceSnippet: { type: "string" },
+          rawSourceSnippet: { type: "string", maxLength: 300 },
           matchScore: { type: "integer" },
           qualityScore: { type: "integer" },
           probabilityOfInterview: { type: "integer" },
@@ -87,10 +87,35 @@ function sourcesFromResponse(response: OpenAIResponse) {
   return [...actionSources, ...annotationSources].filter((source) => source.url);
 }
 
+function jsonErrorPosition(message: string) {
+  const match = message.match(/position (\d+)/i);
+  return match ? Number(match[1]) : null;
+}
+
+function excerptAround(text: string, position: number | null) {
+  if (position === null || !Number.isFinite(position)) return undefined;
+  const start = Math.max(0, position - 250);
+  const end = Math.min(text.length, position + 250);
+  return text.slice(start, end);
+}
+
 function parseRefreshResponse(response: OpenAIResponse): RefreshResponse {
   const text = textFromResponse(response).trim();
   if (!text) return { opportunities: [] };
-  return JSON.parse(text) as RefreshResponse;
+
+  try {
+    return JSON.parse(text) as RefreshResponse;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown JSON parse error";
+    const position = jsonErrorPosition(message);
+    console.warn("[cache-refresh:parse-error]", {
+      errorMessage: message,
+      errorPosition: position,
+      excerptAroundError: excerptAround(text, position),
+      rawResponseStart: text.slice(0, 1000)
+    });
+    return { opportunities: [] };
+  }
 }
 
 function clampScore(value: number, fallback: number) {
@@ -252,14 +277,14 @@ async function createRefreshResponse(input: Record<string, unknown>) {
 
 export async function refreshBucketOpportunities(bucket: SearchBucket, refreshRunId: string, limit: number) {
   const model = process.env.OPENAI_MODEL || "gpt-4.1-mini";
-  const prompt = `Find 5-8 high-quality current internship, trainee, graduate internship or student placement opportunities for business school students.\n\nThe goal is not to maximize quantity. The goal is to find opportunities that would make a student think: "this is genuinely relevant and attractive."\n\nBucket:\n- id: ${bucket.id}\n- category: ${bucket.category.name}\n- region/market: ${bucket.region}\n- track title: ${bucket.displayTitle}\n\nSearch strategy:\n- Search like a strong human internship researcher.\n- Prefer direct employer career pages and official ATS pages such as Greenhouse, Lever, Workday, Teamtailor, SmartRecruiters, Ashby or company job pages.\n- Prefer reputable companies, recognized organizations, strong brands, high-growth startups, sports organizations, international institutions, consulting firms, finance firms, tech companies, hospitality groups or other employers that business school students would consider attractive.\n- Prefer 4-6 month or 6-month internships when possible.\n- Prefer roles relevant to business school profiles: strategy, marketing, partnerships, sponsorship, sales, finance, operations, events, e-commerce, data/business analytics, project management or international business depending on the bucket.\n\nStrict rejection rules:\n- Reject generic career pages, generic internship program pages, talent community pages, job search result pages and company careers homepages.\n- Reject vague pages titled like "Internships at Company", "Students and graduates", "Early careers", "Careers", "Jobs at Company", "Open positions" or "Graduate opportunities".\n- Reject any opportunity that does not have a specific role title, a specific company, a specific location or clear remote/hybrid location, a direct URL to the specific job posting, and evidence that applications are currently open.\n- Reject clearly unpaid internships.\n- Accept paid, stipend, allowance, or compensation not specified if the employer/opportunity is strong.\n- If compensation is not specified, include exactly this risk: "Compensation not specified; confirm before applying."\n- Reject any offer without a direct usable URL.\n- Reject generic search result URLs, LinkedIn search URLs, Google URLs or pages that are not an actual specific job posting.\n- Reject senior roles, manager roles, full-time permanent roles and non-internship roles.\n- Reject roles where the deadline is clearly in the past.\n- Do not reject or downgrade an opportunity only because the deadline is close if applications are still open. Add exactly this risk instead: "Deadline is close; apply quickly."\n- If the deadline is unclear, accept only if the URL is a specific job posting and the opportunity is strong. Add exactly this risk: "Deadline unclear; verify before applying."\n- Reject low-quality filler opportunities. It is better to return 1-2 strong opportunities than 8 mediocre ones.\n\nScore calibration:\n- Do not give very high scores to vague or generic opportunities. Reject them instead.\n- Quality score above 90 requires a direct specific job posting URL, clearly open application, strong employer, strong bucket fit, and clear internship/trainee/student placement status.\n- Do not cap quality score only because a still-open deadline is close.\n\nOutput rules:\n- Return strict JSON only.\n- Every opportunity must include a direct URL to a specific job posting.\n- Every opportunity must include why it matches the bucket.\n- Every opportunity must include risks, especially if compensation or deadline is unclear.\n- Scores should be realistic. Do not give 95+ scores unless the opportunity is exceptionally strong.`;
+  const prompt = `Find 5-8 high-quality current internship, trainee, graduate internship or student placement opportunities for business school students.\n\nThe goal is not to maximize quantity. The goal is to find opportunities that would make a student think: "this is genuinely relevant and attractive."\n\nBucket:\n- id: ${bucket.id}\n- category: ${bucket.category.name}\n- region/market: ${bucket.region}\n- track title: ${bucket.displayTitle}\n\nSearch strategy:\n- Search like a strong human internship researcher.\n- Prefer direct employer career pages and official ATS pages such as Greenhouse, Lever, Workday, Teamtailor, SmartRecruiters, Ashby or company job pages.\n- Prefer reputable companies, recognized organizations, strong brands, high-growth startups, sports organizations, international institutions, consulting firms, finance firms, tech companies, hospitality groups or other employers that business school students would consider attractive.\n- Prefer 4-6 month or 6-month internships when possible.\n- Prefer roles relevant to business school profiles: strategy, marketing, partnerships, sponsorship, sales, finance, operations, events, e-commerce, data/business analytics, project management or international business depending on the bucket.\n\nStrict rejection rules:\n- Reject generic career pages, generic internship program pages, talent community pages, job search result pages and company careers homepages.\n- Reject vague pages titled like "Internships at Company", "Students and graduates", "Early careers", "Careers", "Jobs at Company", "Open positions" or "Graduate opportunities".\n- Reject any opportunity that does not have a specific role title, a specific company, a specific location or clear remote/hybrid location, a direct URL to the specific job posting, and evidence that applications are currently open.\n- Reject clearly unpaid internships.\n- Accept paid, stipend, allowance, or compensation not specified if the employer/opportunity is strong.\n- If compensation is not specified, include exactly this risk: "Compensation not specified; confirm before applying."\n- Reject any offer without a direct usable URL.\n- Reject generic search result URLs, LinkedIn search URLs, Google URLs or pages that are not an actual specific job posting.\n- Reject senior roles, manager roles, full-time permanent roles and non-internship roles.\n- Reject roles where the deadline is clearly in the past.\n- Do not reject or downgrade an opportunity only because the deadline is close if applications are still open. Add exactly this risk instead: "Deadline is close; apply quickly."\n- If the deadline is unclear, accept only if the URL is a specific job posting and the opportunity is strong. Add exactly this risk: "Deadline unclear; verify before applying."\n- Reject low-quality filler opportunities. It is better to return 1-2 strong opportunities than 8 mediocre ones.\n\nScore calibration:\n- Do not give very high scores to vague or generic opportunities. Reject them instead.\n- Quality score above 90 requires a direct specific job posting URL, clearly open application, strong employer, strong bucket fit, and clear internship/trainee/student placement status.\n- Do not cap quality score only because a still-open deadline is close.\n\nOutput rules:\n- Return only valid JSON matching the schema.\n- Strings must not contain raw newline characters. Escape line breaks as \\n or replace them with spaces.\n- Escape quotes and line breaks properly inside every string value.\n- Keep summaries concise. rawSourceSnippet, descriptionSummary and requirementsSummary must each be 300 characters or fewer.\n- Do not copy long raw snippets from websites.\n- Every opportunity must include a direct URL to a specific job posting.\n- Every opportunity must include why it matches the bucket.\n- Every opportunity must include risks, especially if compensation or deadline is unclear.\n- Scores should be realistic. Do not give 95+ scores unless the opportunity is exceptionally strong.`;
 
   const response = await createRefreshResponse({
     model,
     tools: [{ type: "web_search", search_context_size: "medium" }],
     tool_choice: "required",
     input: [
-      { role: "system", content: "You are a careful internship cache refresh researcher. You validate URLs and reject generic pages, weak, expired, unpaid, senior or non-internship results. Quality matters more than quantity." },
+      { role: "system", content: "You are a careful internship cache refresh researcher. You validate URLs and reject generic pages, weak, expired, unpaid, senior or non-internship results. Quality matters more than quantity. Return only valid JSON with no raw newline characters inside strings." },
       { role: "user", content: prompt }
     ],
     text: {
