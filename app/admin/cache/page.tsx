@@ -1,16 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { RefreshSubmitButton } from "./RefreshSubmitButton";
 import { refreshBucketOpportunities } from "@/lib/ai/cacheRefresh";
 import { hasOpenAIConfig } from "@/lib/openai";
-import { searchBuckets } from "@/lib/searchBuckets";
+import { priorityBucketIds, searchBuckets } from "@/lib/searchBuckets";
 import { hasSupabaseConfig, listCachedBucketOpportunities, saveCachedBucketOpportunities, saveLog, updateCachedOpportunityReviewStatus } from "@/lib/store";
 import type { CacheReviewStatus } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const priorityBucketIds = ["sports_business_switzerland", "partnerships_sponsorship_switzerland", "finance_investment_switzerland", "consulting_strategy_europe", "marketing_brand_europe", "digital_growth_international", "sales_business_development_switzerland", "event_operations_europe", "ecommerce_marketplace_europe", "data_analytics_europe", "hospitality_travel_australia", "tech_events_marketing_singapore"];
 
 function isAuthorized(password?: string) { const configuredPassword = process.env.ADMIN_PASSWORD; const isLocalDev = process.env.NODE_ENV !== "production"; return configuredPassword ? password === configuredPassword : isLocalDev; }
 function cachePath(password?: string, message?: string) { const params = new URLSearchParams(); if (password) params.set("password", password); if (message) params.set("message", message); const query = params.toString(); return `/admin/cache${query ? `?${query}` : ""}`; }
@@ -19,27 +18,39 @@ async function refreshCacheAction(formData: FormData) {
   "use server";
   const password = String(formData.get("password") ?? "");
   if (!isAuthorized(password)) redirect("/admin/cache");
-  if (!hasSupabaseConfig() || !hasOpenAIConfig()) redirect(cachePath(password, "setup_required"));
+  if (!hasSupabaseConfig() || !hasOpenAIConfig()) redirect(cachePath(password, "Setup required before refreshing cache."));
   const refreshAll = formData.get("refreshAll") === "on";
-  const selectedBucketId = String(formData.get("bucketId") ?? "");
+  const selectedBucketIds = formData.getAll("bucketIds").map((value) => String(value)).filter(Boolean);
   const limit = Number(formData.get("limit") ?? 1) === 2 ? 2 : 1;
-  const bucketIds = refreshAll ? priorityBucketIds : [selectedBucketId].filter(Boolean);
+  const bucketIds = refreshAll ? priorityBucketIds : selectedBucketIds;
+  if (!bucketIds.length) redirect(cachePath(password, "Select at least one bucket to refresh."));
+
   const refreshRunId = crypto.randomUUID();
   let savedCount = 0;
+  let refreshedCount = 0;
+  let errorCount = 0;
+
   for (const bucketId of bucketIds) {
     const bucket = searchBuckets.find((item) => item.id === bucketId);
-    if (!bucket) continue;
+    if (!bucket) { errorCount += 1; continue; }
     try {
       const opportunities = await refreshBucketOpportunities(bucket, refreshRunId, limit);
-      savedCount += await saveCachedBucketOpportunities(opportunities);
-      await saveLog({ id: crypto.randomUUID(), profileId: "", reportId: "", status: "completed", querySummary: `Admin cache page refresh ${refreshRunId} saved ${opportunities.length} pending opportunities for ${bucket.id}.`, rawResponse: "Manual admin cache refresh completed.", createdAt: new Date().toISOString() });
+      const saved = await saveCachedBucketOpportunities(opportunities);
+      savedCount += saved;
+      refreshedCount += 1;
+      await saveLog({ id: crypto.randomUUID(), profileId: "", reportId: "", status: "completed", querySummary: `Admin cache page refresh ${refreshRunId} saved ${saved} pending opportunities for ${bucket.id}.`, rawResponse: "Manual admin cache refresh completed.", createdAt: new Date().toISOString() });
     } catch (error) {
+      errorCount += 1;
       const message = error instanceof Error ? error.message : "Unknown refresh error";
       await saveLog({ id: crypto.randomUUID(), profileId: "", reportId: "", status: "failed", querySummary: `Admin cache page refresh ${refreshRunId} failed for ${bucket.id}.`, errorMessage: message, createdAt: new Date().toISOString() }).catch(() => undefined);
     }
   }
+
   revalidatePath("/admin/cache");
-  redirect(cachePath(password, `refresh_saved_${savedCount}`));
+  const resultMessage = errorCount
+    ? `Refresh completed with ${errorCount} error(s). ${refreshedCount} bucket(s) refreshed and ${savedCount} opportunities saved as pending.`
+    : `Refresh completed. ${refreshedCount} bucket(s) refreshed and ${savedCount} opportunities saved as pending.`;
+  redirect(cachePath(password, resultMessage));
 }
 
 async function reviewOpportunityAction(formData: FormData) {
@@ -50,7 +61,7 @@ async function reviewOpportunityAction(formData: FormData) {
   const status = String(formData.get("status") ?? "pending") as CacheReviewStatus;
   if (id && ["pending", "approved", "rejected"].includes(status)) await updateCachedOpportunityReviewStatus(id, status);
   revalidatePath("/admin/cache");
-  redirect(cachePath(password, `marked_${status}`));
+  redirect(cachePath(password, `Marked ${status}.`));
 }
 
 function statusClass(status: CacheReviewStatus) { if (status === "approved") return "bg-emerald-50 text-signal ring-emerald-200"; if (status === "rejected") return "bg-red-50 text-red-700 ring-red-200"; return "bg-amber-50 text-amber-700 ring-amber-200"; }
@@ -69,8 +80,23 @@ export default async function AdminCachePage({ searchParams }: { searchParams: {
       {process.env.NODE_ENV === "production" && !configuredPassword ? <p className="mt-5 rounded-md bg-red-50 p-3 text-sm text-red-700">Set ADMIN_PASSWORD before using this page in production.</p> : null}
       {!hasSupabaseConfig() ? <p className="mt-5 rounded-md bg-amber-50 p-3 text-sm text-amber-800">Supabase is not configured. Cache review needs Supabase persistence.</p> : null}
       {!hasOpenAIConfig() ? <p className="mt-5 rounded-md bg-amber-50 p-3 text-sm text-amber-800">OPENAI_API_KEY is not configured. Existing cache can still be reviewed, but refresh will not run.</p> : null}
-      {searchParams.message ? <p className="mt-5 rounded-md bg-emerald-50 p-3 text-sm font-semibold text-signal">{searchParams.message.replaceAll("_", " ")}</p> : null}
-      <form action={refreshCacheAction} className="mt-8 grid gap-4 rounded-lg border border-line bg-white p-5 shadow-soft md:grid-cols-[1fr_120px_auto] md:items-end"><input type="hidden" name="password" value={searchParams.password ?? ""} /><label className="grid gap-2"><span className="label">Bucket</span><select className="field" name="bucketId" defaultValue="sports_business_switzerland">{priorityBucketIds.map((bucketId) => <option key={bucketId} value={bucketId}>{bucketId}</option>)}</select></label><label className="grid gap-2"><span className="label">Limit</span><select className="field" name="limit" defaultValue="1"><option value="1">1</option><option value="2">2</option></select></label><div className="grid gap-3"><label className="flex items-center gap-2 text-sm font-semibold text-ink/70"><input name="refreshAll" type="checkbox" />Refresh all priority buckets</label><button className="button-primary" type="submit">Refresh selected bucket</button></div></form>
+      {searchParams.message ? <p className="mt-5 rounded-md bg-emerald-50 p-3 text-sm font-semibold text-signal">{searchParams.message}</p> : null}
+      <form action={refreshCacheAction} className="mt-8 grid gap-5 rounded-lg border border-line bg-white p-5 shadow-soft">
+        <input type="hidden" name="password" value={searchParams.password ?? ""} />
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div><p className="label">Buckets</p><p className="mt-1 text-sm text-ink/60">Select one or more buckets to refresh manually. New opportunities are saved as pending.</p></div>
+          <label className="grid gap-2 md:w-32"><span className="label">Limit</span><select className="field" name="limit" defaultValue="1"><option value="1">1</option><option value="2">2</option></select></label>
+        </div>
+        <label className="flex items-center gap-2 rounded-md border border-line bg-cream px-3 py-2 text-sm font-semibold text-ink/70"><input name="refreshAll" type="checkbox" />Refresh all buckets</label>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {priorityBucketIds.map((bucketId) => {
+            const bucket = searchBuckets.find((item) => item.id === bucketId);
+            return <label key={bucketId} className="flex min-h-16 items-start gap-2 rounded-md border border-line bg-white p-3 text-sm text-ink/70"><input className="mt-1" name="bucketIds" type="checkbox" value={bucketId} /><span><span className="block font-bold text-ink">{bucket?.displayTitle ?? bucketId}</span><span className="mt-1 block text-xs text-ink/50">{bucketId}</span></span></label>;
+          })}
+        </div>
+        <div className="rounded-md bg-emerald-50 p-3 text-sm text-signal aria-busy:block" aria-live="polite">Refresh can take a little while. Keep this page open until the result message appears.</div>
+        <RefreshSubmitButton />
+      </form>
       <div className="mt-8 grid gap-5">
         {opportunities.length ? opportunities.map((offer) => (
           <article key={offer.id} className="rounded-lg border border-line bg-white p-5 shadow-soft">
