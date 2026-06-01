@@ -9,9 +9,9 @@ The product intentionally does not scrape LinkedIn and does not rely on manual o
 - Next.js App Router
 - TypeScript
 - Tailwind CSS
-- Supabase-ready persistence
-- OpenAI Responses API architecture for future paid live search
-- Stripe-ready checkout architecture for a future unlock flow
+- Supabase persistence
+- OpenAI Responses API for protected admin cache refresh
+- Stripe checkout architecture
 - Vercel-ready deployment
 
 ## Local Setup
@@ -26,14 +26,17 @@ Open `http://localhost:3000`.
 
 ## Environment Variables
 
-See `.env.example` for all supported variables. For this Supabase persistence step, the required variables are:
+See `.env.example` for all supported variables. For Supabase persistence and cache refresh, configure:
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
+OPENAI_API_KEY=
+OPENAI_MODEL=
+CACHE_REFRESH_SECRET=
 ```
 
-`SUPABASE_SERVICE_ROLE_KEY` is server-side only. Do not expose it in client components or browser code.
+`SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY`, and `CACHE_REFRESH_SECRET` are server-side only. Do not expose them in client components or browser code.
 
 ## Supabase Setup
 
@@ -52,6 +55,7 @@ When Supabase is configured, Internship Hunter persists:
 - search logs
 - offer feedback
 - weekly free usage records
+- cached bucket opportunities from protected admin refreshes
 
 Free reports are limited to 1 per email per week through the `free_usage_limits` table. If the same email submits again in the same week, the API returns the existing report id instead of creating a new report.
 
@@ -59,34 +63,74 @@ When Supabase is not configured, the app keeps the current mock/in-memory fallba
 
 ## Current Free Flow
 
-The free flow does not call OpenAI `web_search`. It uses deterministic category and region matching from the guided profile fields, selects the closest active search bucket, and returns 1 top cached opportunity example.
+The free flow does not call OpenAI `web_search`. It uses deterministic category and region matching from the guided profile fields, selects the closest active search bucket, and returns 1 top opportunity.
+
+If Supabase has live cached opportunities for that bucket, the app locally scores the cache against the selected market, city, track, languages, companies already applied to and things to avoid. If no cache item is available, expired, or readable, the app falls back to the existing mock weekly example.
 
 The apply form asks users to choose up to 2 internship tracks from a fixed list. It also asks for a target market using either broad regions or specific countries. These values are stored in the existing `desired_roles` and `target_countries` arrays so the current Supabase schema stays compatible.
 
 The CV upload is still required and stored for the later paid flow, but it is not parsed and does not influence the free result yet. The free result is based on the selected track, target market, languages and profile details.
 
-The cached example is a realistic product example, not a live-verified vacancy.
+## Protected OpenAI Cache Refresh
+
+OpenAI is only used by the protected admin endpoint. Cache refresh is fully manual: an admin triggers it, reviews the saved opportunities in Supabase or the admin monitoring flow, and reruns it if the results are not good enough.
+
+The endpoint is:
+
+```text
+POST /api/admin/refresh-cache
+```
+
+It requires `x-cache-refresh-secret` to match `CACHE_REFRESH_SECRET`. For manual browser testing, the route also accepts `?secret=...`, but the header is preferred.
+
+Refresh one bucket manually:
+
+```bash
+curl -X POST "https://your-domain.com/api/admin/refresh-cache" \
+  -H "Content-Type: application/json" \
+  -H "x-cache-refresh-secret: $CACHE_REFRESH_SECRET" \
+  -d '{"bucketIds":["sports_business_switzerland"],"limit":1}'
+```
+
+Refresh all priority buckets manually:
+
+```bash
+curl -X POST "https://your-domain.com/api/admin/refresh-cache" \
+  -H "Content-Type: application/json" \
+  -H "x-cache-refresh-secret: $CACHE_REFRESH_SECRET" \
+  -d '{"limit":1}'
+```
+
+If `bucketIds` is omitted, the endpoint refreshes all priority buckets. If `bucketIds` is provided, it refreshes only those buckets.
+
+The refresh endpoint:
+
+- uses the OpenAI Responses API with `web_search`, low search context and required tool use
+- searches by bucket/track/market, not by individual free user
+- stores validated results in `cached_bucket_opportunities`
+- saves only the best 1 or 2 opportunities per bucket
+- marks opportunities as live verified and sets `expires_at` 14 days ahead as a freshness indicator
+- rejects clearly unpaid, senior, full-time, expired, LinkedIn or unusable-URL results
+
+No automatic Vercel Cron is configured in this PR. A good manual review cadence is every 1-2 weeks, but refresh should happen only when the admin chooses to run it. Admin review is expected before relying on refreshed cached opportunities.
 
 ## Future OpenAI Live Search
 
 The server-side OpenAI architecture remains in the repo for the future paid flow. Live personalized search is not triggered by free users. A later premium flow can use OpenAI web search for exact roles based on CV, target cities, languages, companies already applied to and timing.
 
-OpenAI cache refresh will come later and should continue to protect free-flow API costs.
-
 ## Current Limitations
 
 - Real persistence requires Supabase setup.
 - Free usage tracking only works when Supabase env vars are configured.
-- OpenAI live search is not enabled in the free flow.
-- Stripe payments are not implemented yet.
+- OpenAI is available only for protected manual admin cache refresh, not normal free submissions.
+- Premium live search is not implemented yet.
 - CV text extraction is basic/mock in this version.
-- Search quality for the free report depends on rule-based category and bucket matching.
+- Cache quality depends on refresh prompts, available web results and admin review.
 - LinkedIn scraping is intentionally not supported.
 
 ## Next Steps
 
 - Add real PDF text extraction and CV storage.
-- Add a real paid unlock flow with Stripe.
-- Run personalized OpenAI live search only after premium unlock.
-- Improve admin monitoring with filters and error traces.
-- Add tests for Supabase persistence and weekly free usage limits.
+- Add a real paid live search flow after premium unlock.
+- Improve admin monitoring with cache refresh history and filters.
+- Add tests for Supabase persistence, cache selection and weekly free usage limits.
