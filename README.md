@@ -75,11 +75,27 @@ When Supabase is not configured, the app keeps the current mock/in-memory fallba
 
 ## Current Free Flow
 
-The free flow does not call OpenAI `web_search`. It uses deterministic category and region matching from the guided profile fields, selects the closest active search bucket, and returns 1 top opportunity.
+The free flow does not call OpenAI `web_search`. It uses deterministic category and market matching from the guided profile fields, selects the closest active search bucket, and returns 1 top opportunity.
+
+Users choose up to 2 tracks from 8 broad business-school tracks:
+
+- Sales, Business Development & Partnerships
+- Marketing, Brand & Growth
+- Strategy, Consulting & Project Management
+- Finance, Investment & M&A
+- Startup, Founder Associate & Operations
+- Product, Tech Business & Data
+- Luxury, Retail, Consumer Goods & E-commerce
+- Sports, Events, Entertainment & Hospitality
+
+Users choose 1 target market:
+
+- Europe
+- International outside Europe
+
+The active bucket system is 8 tracks x 2 markets, for 16 total cache buckets. The selected track is the strongest matching signal, and the selected market chooses the Europe or International outside Europe bucket.
 
 If Supabase has approved cached opportunities for that bucket, the app locally scores the approved cache against the selected market, city, track, languages, companies already applied to and things to avoid. Pending and rejected cache items are ignored. If no approved cache item is available, expired, or readable, the app falls back to the existing mock weekly example.
-
-The apply form asks users to choose up to 2 internship tracks from a fixed list. It also asks for a target market using either broad regions or specific countries. These values are stored in the existing `desired_roles` and `target_countries` arrays so the current Supabase schema stays compatible.
 
 The CV upload is still required and stored for the later paid flow, but it is not parsed and does not influence the free result yet. The free result is based on the selected track, target market, languages and profile details.
 
@@ -101,10 +117,10 @@ Refresh one bucket manually:
 curl -X POST "https://your-domain.com/api/admin/refresh-cache" \
   -H "Content-Type: application/json" \
   -H "x-cache-refresh-secret: $CACHE_REFRESH_SECRET" \
-  -d '{"bucketIds":["sports_business_switzerland"],"limit":1}'
+  -d '{"bucketIds":["sports_events_entertainment_hospitality_europe"],"limit":1}'
 ```
 
-Refresh all priority buckets manually:
+Refresh all 16 buckets manually:
 
 ```bash
 curl -X POST "https://your-domain.com/api/admin/refresh-cache" \
@@ -113,7 +129,7 @@ curl -X POST "https://your-domain.com/api/admin/refresh-cache" \
   -d '{"limit":1}'
 ```
 
-If `bucketIds` is omitted, the endpoint refreshes all priority buckets. If `bucketIds` is provided, it refreshes only those buckets.
+If `bucketIds` is omitted, the endpoint refreshes all 16 buckets. If `bucketIds` is provided, it refreshes only those buckets.
 
 The refresh endpoint:
 
@@ -136,11 +152,13 @@ Open the cache review page at:
 
 Manual review workflow:
 
-1. Refresh a selected bucket or all priority buckets manually.
-2. Review pending opportunities on `/admin/cache`.
-3. Approve good offers.
-4. Reject bad offers.
-5. Free users only see approved cached offers.
+1. Select one or more buckets, or choose all buckets.
+2. Refresh the selected buckets manually from `/admin/cache`.
+3. Keep the page open while the button shows `Refreshing...`.
+4. Review pending opportunities on `/admin/cache`.
+5. Approve good offers.
+6. Reject bad offers.
+7. Free users only see approved cached offers.
 
 Rejected offers and pending offers are ignored by the free flow. If no approved cached offer exists for a bucket, the app falls back to the existing mock weekly example.
 
