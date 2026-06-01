@@ -8,7 +8,7 @@ import type { SearchBucket } from "@/lib/types";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const priorityBucketIds = [
+const priorityBucketIds: string[] = [
   "consulting_strategy_europe",
   "finance_investment_switzerland",
   "marketing_brand_europe",
@@ -52,11 +52,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "OPENAI_API_KEY is required for cache refresh." }, { status: 500 });
   }
 
-  const body = await parseBody(request).catch(() => ({}));
-  const requestedBucketIds = body.bucketIds?.length ? body.bucketIds : priorityBucketIds;
+  const body: RefreshBody = await parseBody(request).catch((): RefreshBody => ({}));
+  const requestedBucketIds: string[] = body.bucketIds?.length ? body.bucketIds : priorityBucketIds;
   const limit = body.limit ?? 2;
-  const buckets = requestedBucketIds.map((bucketId) => searchBuckets.find((bucket) => bucket.id === bucketId)).filter((bucket): bucket is SearchBucket => Boolean(bucket));
-  const missingBucketIds = requestedBucketIds.filter((bucketId) => !searchBuckets.some((bucket) => bucket.id === bucketId));
+  const buckets = requestedBucketIds
+    .map((bucketId: string) => searchBuckets.find((bucket) => bucket.id === bucketId))
+    .filter((bucket): bucket is SearchBucket => Boolean(bucket));
+  const missingBucketIds = requestedBucketIds.filter((bucketId: string) => !searchBuckets.some((bucket) => bucket.id === bucketId));
   const refreshRunId = crypto.randomUUID();
   const errors: Array<{ bucketId: string; error: string }> = [];
   let savedOpportunityCount = 0;
