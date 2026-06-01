@@ -48,6 +48,18 @@ CACHE_REFRESH_SECRET=
 6. Add the same variables locally in `.env.local` and in Vercel project settings.
 7. Redeploy on Vercel.
 
+If `cached_bucket_opportunities` already exists from an earlier version, run this manual migration too:
+
+```sql
+alter table cached_bucket_opportunities
+add column if not exists review_status text not null default 'pending',
+add column if not exists reviewed_at timestamptz,
+add column if not exists reviewed_by text;
+
+create index if not exists cached_bucket_opportunities_review_status_idx
+on cached_bucket_opportunities(review_status);
+```
+
 When Supabase is configured, Internship Hunter persists:
 
 - submitted user profiles
@@ -65,7 +77,7 @@ When Supabase is not configured, the app keeps the current mock/in-memory fallba
 
 The free flow does not call OpenAI `web_search`. It uses deterministic category and region matching from the guided profile fields, selects the closest active search bucket, and returns 1 top opportunity.
 
-If Supabase has live cached opportunities for that bucket, the app locally scores the cache against the selected market, city, track, languages, companies already applied to and things to avoid. If no cache item is available, expired, or readable, the app falls back to the existing mock weekly example.
+If Supabase has approved cached opportunities for that bucket, the app locally scores the approved cache against the selected market, city, track, languages, companies already applied to and things to avoid. Pending and rejected cache items are ignored. If no approved cache item is available, expired, or readable, the app falls back to the existing mock weekly example.
 
 The apply form asks users to choose up to 2 internship tracks from a fixed list. It also asks for a target market using either broad regions or specific countries. These values are stored in the existing `desired_roles` and `target_countries` arrays so the current Supabase schema stays compatible.
 
@@ -73,7 +85,7 @@ The CV upload is still required and stored for the later paid flow, but it is no
 
 ## Protected OpenAI Cache Refresh
 
-OpenAI is only used by the protected admin endpoint. Cache refresh is fully manual: an admin triggers it, reviews the saved opportunities in Supabase or the admin monitoring flow, and reruns it if the results are not good enough.
+OpenAI is only used by the protected admin endpoint. Cache refresh is fully manual: an admin triggers it, reviews the saved opportunities in Supabase or the admin cache page, and reruns it if the results are not good enough.
 
 The endpoint is:
 
@@ -109,10 +121,28 @@ The refresh endpoint:
 - searches by bucket/track/market, not by individual free user
 - stores validated results in `cached_bucket_opportunities`
 - saves only the best 1 or 2 opportunities per bucket
-- marks opportunities as live verified and sets `expires_at` 14 days ahead as a freshness indicator
+- marks opportunities as live verified, pending review, and sets `expires_at` 14 days ahead as a freshness indicator
 - rejects clearly unpaid, senior, full-time, expired, LinkedIn or unusable-URL results
 
-No automatic Vercel Cron is configured in this PR. A good manual review cadence is every 1-2 weeks, but refresh should happen only when the admin chooses to run it. Admin review is expected before relying on refreshed cached opportunities.
+No automatic Vercel Cron is configured in this PR. A good manual review cadence is every 1-2 weeks, but refresh should happen only when the admin chooses to run it.
+
+## Admin Cache Review
+
+Open the cache review page at:
+
+```text
+/admin/cache?password=YOUR_ADMIN_PASSWORD
+```
+
+Manual review workflow:
+
+1. Refresh a selected bucket or all priority buckets manually.
+2. Review pending opportunities on `/admin/cache`.
+3. Approve good offers.
+4. Reject bad offers.
+5. Free users only see approved cached offers.
+
+Rejected offers and pending offers are ignored by the free flow. If no approved cached offer exists for a bucket, the app falls back to the existing mock weekly example.
 
 ## Future OpenAI Live Search
 
@@ -125,7 +155,7 @@ The server-side OpenAI architecture remains in the repo for the future paid flow
 - OpenAI is available only for protected manual admin cache refresh, not normal free submissions.
 - Premium live search is not implemented yet.
 - CV text extraction is basic/mock in this version.
-- Cache quality depends on refresh prompts, available web results and admin review.
+- Cache quality depends on refresh prompts, available web results and admin approval.
 - LinkedIn scraping is intentionally not supported.
 
 ## Next Steps
