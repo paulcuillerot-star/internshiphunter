@@ -155,7 +155,7 @@ If `bucketIds` is omitted, the endpoint refreshes all 16 buckets. If `bucketIds`
 
 The refresh endpoint:
 
-- uses the OpenAI Responses API with `web_search`, low search context and required tool use
+- uses the OpenAI Responses API with `web_search`, medium search context and required tool use
 - searches by bucket/track/market, not by individual free user
 - stores validated results in `cached_bucket_opportunities`
 - saves only the best 1 or 2 opportunities per bucket
