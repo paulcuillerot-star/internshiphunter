@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/nextjs";
 import { NextResponse } from "next/server";
 import { refreshBucketOpportunities } from "@/lib/ai/cacheRefresh";
 import { hasOpenAIConfig } from "@/lib/openai";
@@ -48,6 +49,13 @@ export async function POST(request: Request) {
   const errors: Array<{ bucketId: string; error: string }> = [];
   let savedOpportunityCount = 0;
 
+  Sentry.addBreadcrumb({
+    category: "admin-cache-refresh",
+    message: "Protected cache refresh API started",
+    level: "info",
+    data: { refreshRunId, bucketCount: buckets.length, limit }
+  });
+
   for (const bucket of buckets) {
     try {
       const opportunities = await refreshBucketOpportunities(bucket, refreshRunId, limit);
@@ -57,6 +65,10 @@ export async function POST(request: Request) {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown refresh error";
       errors.push({ bucketId: bucket.id, error: message });
+      Sentry.captureException(error, {
+        tags: { feature: "admin-cache-refresh-api", bucketId: bucket.id },
+        extra: { refreshRunId, limit, bucketId: bucket.id }
+      });
       await saveLog({ id: crypto.randomUUID(), profileId: "", reportId: "", status: "failed", querySummary: `Cache refresh ${refreshRunId} failed for ${bucket.id}.`, errorMessage: message, createdAt: new Date().toISOString() }).catch(() => undefined);
     }
   }
