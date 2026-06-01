@@ -1,27 +1,12 @@
 import { NextResponse } from "next/server";
 import { refreshBucketOpportunities } from "@/lib/ai/cacheRefresh";
 import { hasOpenAIConfig } from "@/lib/openai";
-import { searchBuckets } from "@/lib/searchBuckets";
+import { priorityBucketIds, searchBuckets } from "@/lib/searchBuckets";
 import { hasSupabaseConfig, saveCachedBucketOpportunities, saveLog } from "@/lib/store";
 import type { SearchBucket } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const priorityBucketIds: string[] = [
-  "consulting_strategy_europe",
-  "finance_investment_switzerland",
-  "marketing_brand_europe",
-  "digital_growth_international",
-  "sales_business_development_switzerland",
-  "partnerships_sponsorship_switzerland",
-  "event_operations_europe",
-  "ecommerce_marketplace_europe",
-  "data_analytics_europe",
-  "sports_business_switzerland",
-  "hospitality_travel_australia",
-  "tech_events_marketing_singapore"
-];
 
 type RefreshBody = { bucketIds?: string[]; limit?: number };
 
@@ -54,7 +39,7 @@ export async function POST(request: Request) {
 
   const body: RefreshBody = await parseBody(request).catch((): RefreshBody => ({}));
   const requestedBucketIds: string[] = body.bucketIds?.length ? body.bucketIds : priorityBucketIds;
-  const limit = body.limit ?? 2;
+  const limit = body.limit ?? 1;
   const buckets = requestedBucketIds
     .map((bucketId: string) => searchBuckets.find((bucket) => bucket.id === bucketId))
     .filter((bucket): bucket is SearchBucket => Boolean(bucket));
