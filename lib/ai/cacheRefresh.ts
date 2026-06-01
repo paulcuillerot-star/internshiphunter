@@ -29,6 +29,7 @@ type RefreshOpportunity = {
 
 type RefreshResponse = { opportunities: RefreshOpportunity[] };
 type OpenAIResponse = { output_text?: string; output?: Array<{ type?: string; action?: { sources?: Array<{ url?: string; title?: string; snippet?: string }> }; content?: Array<{ type?: string; text?: string; annotations?: Array<{ type?: string; url?: string; title?: string }> }> }> };
+type RejectionReason = "missing_title_or_company" | "missing_location" | "unusable_url" | "generic_career_page" | "no_open_application_evidence" | "clearly_unpaid" | "not_internship" | "past_deadline";
 
 const responseSchema = {
   type: "object",
@@ -169,6 +170,18 @@ function deadlineIsPast(deadline: string) {
   return Number.isFinite(parsed) && parsed < Date.now();
 }
 
+function getOpportunityRejectionReason(item: RefreshOpportunity): RejectionReason | null {
+  if (!item.title?.trim() || !item.company?.trim()) return "missing_title_or_company";
+  if (!item.location?.trim() && !item.country?.trim() && !item.city?.trim()) return "missing_location";
+  if (!item.url || !isUsableUrl(item.url)) return "unusable_url";
+  if (isGenericCareerPage(item)) return "generic_career_page";
+  if (!hasOpenApplicationEvidence(item)) return "no_open_application_evidence";
+  if (isClearlyUnpaid(`${item.compensation} ${item.rawSourceSnippet}`)) return "clearly_unpaid";
+  if (isClearlyNotInternship(item)) return "not_internship";
+  if (deadlineIsPast(item.deadline)) return "past_deadline";
+  return null;
+}
+
 function deadlineRisk(deadline: string, now: Date) {
   const trimmed = deadline.trim();
   const parsed = Date.parse(trimmed);
@@ -179,14 +192,7 @@ function deadlineRisk(deadline: string, now: Date) {
 }
 
 function normalizeOpportunity(item: RefreshOpportunity, bucket: SearchBucket, refreshRunId: string, now: Date, rawSources: CachedBucketOpportunity["rawSources"]): CachedBucketOpportunity | null {
-  if (!item.title?.trim() || !item.company?.trim()) return null;
-  if (!item.location?.trim() && !item.country?.trim() && !item.city?.trim()) return null;
-  if (!item.url || !isUsableUrl(item.url)) return null;
-  if (isGenericCareerPage(item)) return null;
-  if (!hasOpenApplicationEvidence(item)) return null;
-  if (isClearlyUnpaid(`${item.compensation} ${item.rawSourceSnippet}`)) return null;
-  if (isClearlyNotInternship(item)) return null;
-  if (deadlineIsPast(item.deadline)) return null;
+  if (getOpportunityRejectionReason(item)) return null;
 
   const risks = [...(item.risks ?? [])];
   const addRisk = (risk: string) => {
@@ -250,7 +256,7 @@ export async function refreshBucketOpportunities(bucket: SearchBucket, refreshRu
 
   const response = await createRefreshResponse({
     model,
-    tools: [{ type: "web_search", search_context_size: "low" }],
+    tools: [{ type: "web_search", search_context_size: "medium" }],
     tool_choice: "required",
     input: [
       { role: "system", content: "You are a careful internship cache refresh researcher. You validate URLs and reject generic pages, weak, expired, unpaid, senior or non-internship results. Quality matters more than quantity." },
@@ -269,9 +275,28 @@ export async function refreshBucketOpportunities(bucket: SearchBucket, refreshRu
   const parsed = parseRefreshResponse(response);
   const rawSources = sourcesFromResponse(response);
   const now = new Date();
-  return parsed.opportunities
+  const rejectionDetails = parsed.opportunities
+    .map((item) => ({ item, reason: getOpportunityRejectionReason(item) }))
+    .filter((entry): entry is { item: RefreshOpportunity; reason: RejectionReason } => Boolean(entry.reason));
+  const validatedOpportunities = parsed.opportunities
     .map((item) => normalizeOpportunity(item, bucket, refreshRunId, now, rawSources))
-    .filter((item): item is CachedBucketOpportunity => Boolean(item))
+    .filter((item): item is CachedBucketOpportunity => Boolean(item));
+
+  console.info("[cache-refresh:validation]", {
+    bucketId: bucket.id,
+    openAIOpportunityCount: parsed.opportunities.length,
+    keptOpportunityCount: validatedOpportunities.length,
+    rejectedOpportunityCount: rejectionDetails.length,
+    rejections: rejectionDetails.map(({ item, reason }) => ({
+      reason,
+      title: item.title,
+      company: item.company,
+      url: item.url,
+      deadline: item.deadline
+    }))
+  });
+
+  return validatedOpportunities
     .sort((a, b) => (b.matchScore + b.qualityScore) - (a.matchScore + a.qualityScore))
     .slice(0, Math.max(1, Math.min(limit, 2)));
 }
