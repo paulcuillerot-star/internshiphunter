@@ -1,4 +1,5 @@
 import "server-only";
+import * as Sentry from "@sentry/nextjs";
 import { createOpenAIResponse } from "@/lib/openai";
 import type { CachedBucketOpportunity, SearchBucket } from "@/lib/types";
 
@@ -108,11 +109,23 @@ function parseRefreshResponse(response: OpenAIResponse): RefreshResponse {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown JSON parse error";
     const position = jsonErrorPosition(message);
+    const excerptAroundError = excerptAround(text, position);
+    const rawResponseStart = text.slice(0, 1000);
     console.warn("[cache-refresh:parse-error]", {
       errorMessage: message,
       errorPosition: position,
-      excerptAroundError: excerptAround(text, position),
-      rawResponseStart: text.slice(0, 1000)
+      excerptAroundError,
+      rawResponseStart
+    });
+    Sentry.withScope((scope) => {
+      scope.setTag("feature", "cache-refresh");
+      scope.setContext("cache_refresh_parse_error", {
+        errorMessage: message,
+        errorPosition: position,
+        excerptAroundError,
+        rawResponseStart
+      });
+      Sentry.captureMessage("Cache refresh OpenAI JSON parse failed", "warning");
     });
     return { opportunities: [] };
   }
@@ -307,19 +320,45 @@ export async function refreshBucketOpportunities(bucket: SearchBucket, refreshRu
     .map((item) => normalizeOpportunity(item, bucket, refreshRunId, now, rawSources))
     .filter((item): item is CachedBucketOpportunity => Boolean(item));
 
-  console.info("[cache-refresh:validation]", {
+  const refreshContext = {
     bucketId: bucket.id,
+    refreshRunId,
+    model,
     openAIOpportunityCount: parsed.opportunities.length,
     keptOpportunityCount: validatedOpportunities.length,
-    rejectedOpportunityCount: rejectionDetails.length,
-    rejections: rejectionDetails.map(({ item, reason }) => ({
-      reason,
-      title: item.title,
-      company: item.company,
-      url: item.url,
-      deadline: item.deadline
-    }))
+    rejectedOpportunityCount: rejectionDetails.length
+  };
+  const rejectionContext = rejectionDetails.map(({ item, reason }) => ({
+    reason,
+    title: item.title,
+    company: item.company,
+    url: item.url,
+    deadline: item.deadline
+  }));
+
+  console.info("[cache-refresh:validation]", {
+    ...refreshContext,
+    rejections: rejectionContext
   });
+
+  if (parsed.opportunities.length === 0) {
+    Sentry.withScope((scope) => {
+      scope.setTag("feature", "cache-refresh");
+      scope.setTag("bucketId", bucket.id);
+      scope.setContext("cache_refresh_zero_openai_opportunities", refreshContext);
+      Sentry.captureMessage("Cache refresh returned zero OpenAI opportunities", "warning");
+    });
+  } else if (validatedOpportunities.length === 0) {
+    Sentry.withScope((scope) => {
+      scope.setTag("feature", "cache-refresh");
+      scope.setTag("bucketId", bucket.id);
+      scope.setContext("cache_refresh_zero_validated_opportunities", {
+        ...refreshContext,
+        rejections: rejectionContext
+      });
+      Sentry.captureMessage("Cache refresh kept zero opportunities after validation", "warning");
+    });
+  }
 
   return validatedOpportunities
     .sort((a, b) => (b.matchScore + b.qualityScore) - (a.matchScore + a.qualityScore))
