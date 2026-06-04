@@ -148,7 +148,7 @@ export const searchBuckets: SearchBucket[] = [
   bucket("sports_events_entertainment_hospitality_international", "sports_events_entertainment_hospitality", "International outside Europe", "Sports, Events, Entertainment & Hospitality International", "IMG", "New York", "United States", "Sports Partnerships Intern", "Marriott", "Dubai", "United Arab Emirates", "Hospitality Marketing Intern")
 ];
 
-export const priorityBucketIds = searchBuckets.map((bucketItem) => bucketItem.id);
+export const priorityBucketIds = searchBuckets.filter((bucketItem) => bucketItem.region === "Europe").map((bucketItem) => bucketItem.id);
 
 const bucketsById = Object.fromEntries(searchBuckets.map((item) => [item.id, item])) as Record<string, SearchBucket>;
 const suffix: Record<"Europe" | "International outside Europe", string> = { Europe: "europe", "International outside Europe": "international" };
@@ -164,10 +164,10 @@ function fallbackBucket(categoryId: string, region: SearchRegion) {
 }
 
 export function matchSearchBucket(profile: CandidateProfile): MatchedSearchBucket {
-  const region = detectSearchRegion(profile);
+  const region: SearchRegion = "Europe";
   const selected = selectedCategories(profile);
   const exact = selected.map((category) => bucketsById[bucketIdFor(category.id, region)]).find((candidate): candidate is SearchBucket => Boolean(candidate));
   const category = exact?.category ?? selected[0] ?? detectSearchCategory(profile);
   const selectedBucket = exact ?? bucketsById[bucketIdFor(category.id, region)] ?? fallbackBucket(category.id, region);
-  return { category, region, bucket: selectedBucket, explanation: `${category.name} is the closest track based on your selected internship track, target market and profile details. ${selectedBucket.whyThisBucketFits}` };
+  return { category, region, bucket: selectedBucket, explanation: `${category.name} is the closest track based on your selected internship track and Europe free market. ${selectedBucket.whyThisBucketFits}` };
 }
