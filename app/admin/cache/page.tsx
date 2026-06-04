@@ -78,6 +78,9 @@ async function reviewOpportunityAction(formData: FormData) {
 
 function statusClass(status: CacheReviewStatus) { if (status === "approved") return "bg-emerald-50 text-signal ring-emerald-200"; if (status === "rejected") return "bg-red-50 text-red-700 ring-red-200"; return "bg-amber-50 text-amber-700 ring-amber-200"; }
 function formatDate(value?: string) { if (!value) return "Not set"; return new Date(value).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }); }
+function timestamp(value?: string) { return value ? new Date(value).getTime() : 0; }
+function countStatus(items: Array<{ reviewStatus: CacheReviewStatus }>, status: CacheReviewStatus) { return items.filter((item) => item.reviewStatus === status).length; }
+function statusSortValue(status: CacheReviewStatus) { if (status === "pending") return 0; if (status === "approved") return 1; return 2; }
 
 export default async function AdminCachePage({ searchParams }: { searchParams: { password?: string; message?: string } }) {
   const configuredPassword = process.env.ADMIN_PASSWORD;
@@ -86,6 +89,23 @@ export default async function AdminCachePage({ searchParams }: { searchParams: {
     return <section className="section"><h1 className="text-3xl font-bold text-ink">Admin access</h1>{!configuredPassword ? <p className="mt-3 max-w-md text-sm text-ink/70">Set ADMIN_PASSWORD before using the cache review dashboard in production.</p> : null}<form className="mt-6 flex max-w-md gap-3"><input className="field" name="password" type="password" placeholder="Admin password" /><button className="button-primary">Enter</button></form></section>;
   }
   const opportunities = await listCachedBucketOpportunities();
+  const bucketOrder = new Map(priorityBucketIds.map((bucketId, index) => [bucketId, index]));
+  const bucketLookup = new Map(searchBuckets.map((bucket) => [bucket.id, bucket]));
+  const grouped = new Map<string, typeof opportunities>();
+  for (const opportunity of opportunities) {
+    grouped.set(opportunity.bucketId, [...(grouped.get(opportunity.bucketId) ?? []), opportunity]);
+  }
+  const bucketGroups = Array.from(grouped.entries())
+    .map(([bucketId, items]) => ({
+      bucketId,
+      bucket: bucketLookup.get(bucketId),
+      items: [...items].sort((a, b) => statusSortValue(a.reviewStatus) - statusSortValue(b.reviewStatus) || timestamp(b.createdAt) - timestamp(a.createdAt))
+    }))
+    .sort((a, b) => (bucketOrder.get(a.bucketId) ?? 9999) - (bucketOrder.get(b.bucketId) ?? 9999) || a.bucketId.localeCompare(b.bucketId));
+  const totalPending = countStatus(opportunities, "pending");
+  const totalApproved = countStatus(opportunities, "approved");
+  const totalRejected = countStatus(opportunities, "rejected");
+
   return (
     <section className="section">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between"><div><p className="text-sm font-semibold uppercase text-signal">Admin</p><h1 className="mt-3 text-4xl font-bold text-ink">Cache review</h1><p className="mt-3 max-w-3xl text-ink/70">Refresh buckets manually, review opportunities, approve only the ones you want users to see.</p></div><Link className="text-sm font-bold text-signal" href={`/admin?password=${encodeURIComponent(searchParams.password ?? "")}`}>Back to admin dashboard</Link></div>
@@ -109,14 +129,49 @@ export default async function AdminCachePage({ searchParams }: { searchParams: {
         <div className="rounded-md bg-emerald-50 p-3 text-sm text-signal" aria-live="polite">Refresh can take a little while. Keep this page open until the result message appears.</div>
         <RefreshSubmitButton />
       </form>
-      <div className="mt-8 grid gap-5">
-        {opportunities.length ? opportunities.map((offer) => (
-          <article key={offer.id} className="rounded-lg border border-line bg-white p-5 shadow-soft">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold uppercase ring-1 ${statusClass(offer.reviewStatus)}`}>{offer.reviewStatus}</span><p className="mt-3 text-xs font-semibold uppercase text-ink/40">{offer.bucketId}</p><h2 className="mt-1 text-2xl font-bold text-ink">{offer.title}</h2><p className="mt-1 font-semibold text-signal">{offer.company}</p><p className="text-sm text-ink/60">{offer.location}</p></div><div className="flex flex-wrap gap-2"><form action={reviewOpportunityAction}><input type="hidden" name="password" value={searchParams.password ?? ""} /><input type="hidden" name="id" value={offer.id} /><input type="hidden" name="status" value="approved" /><button className="rounded-md bg-signal px-4 py-2 text-sm font-bold text-white" type="submit">Approve</button></form><form action={reviewOpportunityAction}><input type="hidden" name="password" value={searchParams.password ?? ""} /><input type="hidden" name="id" value={offer.id} /><input type="hidden" name="status" value="rejected" /><button className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-700" type="submit">Reject</button></form></div></div>
-            <div className="mt-5 grid gap-4 text-sm md:grid-cols-3"><p><span className="font-bold text-ink">Match:</span> {offer.matchScore}</p><p><span className="font-bold text-ink">Quality:</span> {offer.qualityScore}</p><p><span className="font-bold text-ink">Compensation:</span> {offer.compensation || "Not specified"}</p><p><span className="font-bold text-ink">Deadline:</span> {offer.deadline || "Not specified"}</p><p><span className="font-bold text-ink">Verified:</span> {formatDate(offer.verifiedAt)}</p><p><span className="font-bold text-ink">Expires:</span> {formatDate(offer.expiresAt)}</p><p><span className="font-bold text-ink">Created:</span> {formatDate(offer.createdAt)}</p><p><span className="font-bold text-ink">Reviewed:</span> {formatDate(offer.reviewedAt)}</p><p><a className="font-bold text-signal underline" href={offer.url} target="_blank" rel="noreferrer">Open job page</a></p></div>
-            <div className="mt-5 grid gap-4 md:grid-cols-2"><div className="rounded-md bg-emerald-50 p-4"><p className="text-sm font-bold text-signal">Why it matches</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-ink/70">{offer.whyItMatches.map((item) => <li key={item}>{item}</li>)}</ul></div><div className="rounded-md bg-amber-50 p-4"><p className="text-sm font-bold text-amber-800">Risks</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-ink/70">{offer.risks.map((item) => <li key={item}>{item}</li>)}</ul></div></div>
-          </article>
-        )) : <p className="rounded-lg border border-line bg-white p-5 text-sm text-ink/70 shadow-soft">No cached opportunities yet.</p>}
+      <div className="mt-8 rounded-lg border border-line bg-white p-5 shadow-soft">
+        <p className="text-sm font-bold uppercase text-ink/50">Cached opportunities summary</p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-4">
+          <div><p className="text-3xl font-black text-ink">{opportunities.length}</p><p className="text-xs font-bold uppercase text-ink/45">Total</p></div>
+          <div><p className="text-3xl font-black text-amber-700">{totalPending}</p><p className="text-xs font-bold uppercase text-ink/45">Pending</p></div>
+          <div><p className="text-3xl font-black text-signal">{totalApproved}</p><p className="text-xs font-bold uppercase text-ink/45">Approved</p></div>
+          <div><p className="text-3xl font-black text-red-700">{totalRejected}</p><p className="text-xs font-bold uppercase text-ink/45">Rejected</p></div>
+        </div>
+      </div>
+      <div className="mt-8 grid gap-8">
+        {bucketGroups.length ? bucketGroups.map(({ bucketId, bucket, items }) => {
+          const pending = countStatus(items, "pending");
+          const approved = countStatus(items, "approved");
+          const rejected = countStatus(items, "rejected");
+          return (
+            <section key={bucketId} className="grid gap-4">
+              <div className="rounded-lg border border-line bg-mist p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <h2 className="text-2xl font-black text-ink">{bucket?.displayTitle ?? bucketId}</h2>
+                    <p className="mt-1 text-sm font-semibold text-ink/60">{bucket ? `${bucket.category.name} · ${bucket.region}` : "Unknown bucket"}</p>
+                    <p className="mt-2 text-xs font-semibold uppercase text-ink/40">{bucketId}</p>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2 text-center text-xs font-bold uppercase text-ink/50 sm:min-w-96">
+                    <div className="rounded-md bg-white p-2"><p className="text-lg font-black text-ink">{items.length}</p><p>Total</p></div>
+                    <div className="rounded-md bg-white p-2"><p className="text-lg font-black text-amber-700">{pending}</p><p>Pending</p></div>
+                    <div className="rounded-md bg-white p-2"><p className="text-lg font-black text-signal">{approved}</p><p>Approved</p></div>
+                    <div className="rounded-md bg-white p-2"><p className="text-lg font-black text-red-700">{rejected}</p><p>Rejected</p></div>
+                  </div>
+                </div>
+              </div>
+              <div className="grid gap-5">
+                {items.map((offer) => (
+                  <article key={offer.id} className="rounded-lg border border-line bg-white p-5 shadow-soft">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold uppercase ring-1 ${statusClass(offer.reviewStatus)}`}>{offer.reviewStatus}</span><p className="mt-3 text-xs font-semibold uppercase text-ink/40">{offer.bucketId}</p><h2 className="mt-1 text-2xl font-bold text-ink">{offer.title}</h2><p className="mt-1 font-semibold text-signal">{offer.company}</p><p className="text-sm text-ink/60">{offer.location}</p></div><div className="flex flex-wrap gap-2"><form action={reviewOpportunityAction}><input type="hidden" name="password" value={searchParams.password ?? ""} /><input type="hidden" name="id" value={offer.id} /><input type="hidden" name="status" value="approved" /><button className="rounded-md bg-signal px-4 py-2 text-sm font-bold text-white" type="submit">Approve</button></form><form action={reviewOpportunityAction}><input type="hidden" name="password" value={searchParams.password ?? ""} /><input type="hidden" name="id" value={offer.id} /><input type="hidden" name="status" value="rejected" /><button className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-700" type="submit">Reject</button></form></div></div>
+                    <div className="mt-5 grid gap-4 text-sm md:grid-cols-3"><p><span className="font-bold text-ink">Match:</span> {offer.matchScore}</p><p><span className="font-bold text-ink">Quality:</span> {offer.qualityScore}</p><p><span className="font-bold text-ink">Compensation:</span> {offer.compensation || "Not specified"}</p><p><span className="font-bold text-ink">Deadline:</span> {offer.deadline || "Not specified"}</p><p><span className="font-bold text-ink">Verified:</span> {formatDate(offer.verifiedAt)}</p><p><span className="font-bold text-ink">Expires:</span> {formatDate(offer.expiresAt)}</p><p><span className="font-bold text-ink">Created:</span> {formatDate(offer.createdAt)}</p><p><span className="font-bold text-ink">Reviewed:</span> {formatDate(offer.reviewedAt)}</p><p><a className="font-bold text-signal underline" href={offer.url} target="_blank" rel="noreferrer">Open job page</a></p></div>
+                    <div className="mt-5 grid gap-4 md:grid-cols-2"><div className="rounded-md bg-emerald-50 p-4"><p className="text-sm font-bold text-signal">Why it matches</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-ink/70">{offer.whyItMatches.map((item) => <li key={item}>{item}</li>)}</ul></div><div className="rounded-md bg-amber-50 p-4"><p className="text-sm font-bold text-amber-800">Risks</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-ink/70">{offer.risks.map((item) => <li key={item}>{item}</li>)}</ul></div></div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          );
+        }) : <p className="rounded-lg border border-line bg-white p-5 text-sm text-ink/70 shadow-soft">No cached opportunities yet.</p>}
       </div>
     </section>
   );
