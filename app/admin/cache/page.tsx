@@ -9,8 +9,34 @@ import { priorityBucketIds, searchBuckets } from "@/lib/searchBuckets";
 import { hasSupabaseConfig, listCachedBucketOpportunities, saveCachedBucketOpportunities, saveLog, updateCachedOpportunityReviewStatus } from "@/lib/store";
 import type { CacheReviewStatus } from "@/lib/types";
 
+type CachedOpportunity = Awaited<ReturnType<typeof listCachedBucketOpportunities>>[number];
+type BucketHealthStatus = "Ready" | "Needs review" | "Missing approved";
+
+type BucketHealth = {
+  total: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+  approvedActive: CachedOpportunity[];
+  bestApproved?: CachedOpportunity;
+  bestApprovedScore: number;
+  status: BucketHealthStatus;
+  warnings: string[];
+};
+
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+const bucketFitKeywords: Record<string, string[]> = {
+  product_tech_business_data: ["product", "data", "analytics", "business intelligence", "bi", "dashboard", "tech", "digital", "operations", "revenue operations", "product operations"],
+  finance_investment_ma: ["finance", "investment", "m&a", "merger", "acquisition", "private equity", "asset management", "trading", "structuring", "markets"],
+  sales_bd_partnerships: ["sales", "business development", "partnership", "sponsorship", "account", "client relationship", "commercial"],
+  marketing_brand_growth: ["marketing", "brand", "growth", "crm", "acquisition", "content", "campaign"],
+  sports_events_entertainment_hospitality: ["sport", "sports", "event", "hospitality", "entertainment", "tourism", "travel", "fan", "matchday"],
+  luxury_retail_consumer_ecommerce: ["luxury", "retail", "consumer", "e-commerce", "ecommerce", "merchandising", "marketplace", "fashion"],
+  startup_founder_operations: ["startup", "founder", "operations", "venture", "growth", "strategy", "chief of staff"],
+  strategy_consulting_project_management: ["strategy", "consulting", "project", "transformation", "business analyst", "analyst", "pm"]
+};
 
 function isAuthorized(password?: string) { const configuredPassword = process.env.ADMIN_PASSWORD; const isLocalDev = process.env.NODE_ENV !== "production"; return configuredPassword ? password === configuredPassword : isLocalDev; }
 function cachePath(password?: string, message?: string) { const params = new URLSearchParams(); if (password) params.set("password", password); if (message) params.set("message", message); const query = params.toString(); return `/admin/cache${query ? `?${query}` : ""}`; }
@@ -77,10 +103,50 @@ async function reviewOpportunityAction(formData: FormData) {
 }
 
 function statusClass(status: CacheReviewStatus) { if (status === "approved") return "bg-emerald-50 text-signal ring-emerald-200"; if (status === "rejected") return "bg-red-50 text-red-700 ring-red-200"; return "bg-amber-50 text-amber-700 ring-amber-200"; }
+function healthStatusClass(status: BucketHealthStatus) { if (status === "Ready") return "bg-emerald-50 text-signal ring-emerald-200"; if (status === "Missing approved") return "bg-red-50 text-red-700 ring-red-200"; return "bg-amber-50 text-amber-700 ring-amber-200"; }
 function formatDate(value?: string) { if (!value) return "Not set"; return new Date(value).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }); }
 function timestamp(value?: string) { return value ? new Date(value).getTime() : 0; }
+function isActive(offer: CachedOpportunity) { const expiresAt = timestamp(offer.expiresAt); return !expiresAt || expiresAt > Date.now(); }
+function expiresSoon(value?: string) { const expiresAt = timestamp(value); return Boolean(expiresAt && expiresAt > Date.now() && expiresAt - Date.now() < 7 * 24 * 60 * 60 * 1000); }
 function countStatus(items: Array<{ reviewStatus: CacheReviewStatus }>, status: CacheReviewStatus) { return items.filter((item) => item.reviewStatus === status).length; }
 function statusSortValue(status: CacheReviewStatus) { if (status === "pending") return 0; if (status === "approved") return 1; return 2; }
+function score(offer: CachedOpportunity) { return Math.round(((offer.matchScore ?? 0) + (offer.qualityScore ?? 0)) / 2); }
+function categoryIdFromBucketId(bucketId: string) { return Object.keys(bucketFitKeywords).find((categoryId) => bucketId.startsWith(categoryId)); }
+function opportunityText(offer: CachedOpportunity) { return [offer.title, offer.company, offer.location, offer.descriptionSummary, offer.requirementsSummary, offer.applicationAngle, ...(offer.whyItMatches ?? []), ...(offer.risks ?? [])].join(" ").toLowerCase(); }
+function possibleBucketMismatch(bucketId: string, offer?: CachedOpportunity) {
+  if (!offer) return false;
+  const categoryId = categoryIdFromBucketId(bucketId);
+  const keywords = categoryId ? bucketFitKeywords[categoryId] : [];
+  if (!keywords.length) return false;
+  const text = opportunityText(offer);
+  return !keywords.some((keyword) => text.includes(keyword));
+}
+function hasDeadlineConcern(offer?: CachedOpportunity) {
+  if (!offer) return false;
+  const text = [offer.deadline, ...(offer.risks ?? [])].join(" ").toLowerCase();
+  return !offer.deadline || text.includes("deadline unclear") || text.includes("deadline is close") || text.includes("apply quickly");
+}
+function buildBucketHealth(bucketId: string, items: CachedOpportunity[]): BucketHealth {
+  const approvedActive = items.filter((item) => item.reviewStatus === "approved" && isActive(item)).sort((a, b) => score(b) - score(a) || timestamp(b.createdAt) - timestamp(a.createdAt));
+  const bestApproved = approvedActive[0];
+  const warnings = [
+    approvedActive.length > 1 ? "Duplicate approved offers" : "",
+    bestApproved && (expiresSoon(bestApproved.expiresAt) || hasDeadlineConcern(bestApproved)) ? "Deadline close or unclear" : "",
+    bestApproved && possibleBucketMismatch(bucketId, bestApproved) ? "Possible bucket mismatch" : "",
+    bestApproved && score(bestApproved) < 85 ? "Score below threshold" : ""
+  ].filter(Boolean);
+  return {
+    total: items.length,
+    pending: countStatus(items, "pending"),
+    approved: countStatus(items, "approved"),
+    rejected: countStatus(items, "rejected"),
+    approvedActive,
+    bestApproved,
+    bestApprovedScore: bestApproved ? score(bestApproved) : 0,
+    status: approvedActive.length ? (warnings.length ? "Needs review" : "Ready") : "Missing approved",
+    warnings
+  };
+}
 
 export default async function AdminCachePage({ searchParams }: { searchParams: { password?: string; message?: string } }) {
   const configuredPassword = process.env.ADMIN_PASSWORD;
@@ -95,6 +161,7 @@ export default async function AdminCachePage({ searchParams }: { searchParams: {
   for (const opportunity of opportunities) {
     grouped.set(opportunity.bucketId, [...(grouped.get(opportunity.bucketId) ?? []), opportunity]);
   }
+  const healthByBucket = new Map(priorityBucketIds.map((bucketId) => [bucketId, buildBucketHealth(bucketId, grouped.get(bucketId) ?? [])]));
   const bucketGroups = Array.from(grouped.entries())
     .map(([bucketId, items]) => ({
       bucketId,
@@ -123,7 +190,8 @@ export default async function AdminCachePage({ searchParams }: { searchParams: {
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {priorityBucketIds.map((bucketId) => {
             const bucket = searchBuckets.find((item) => item.id === bucketId);
-            return <label key={bucketId} className="flex min-h-16 items-start gap-2 rounded-md border border-line bg-white p-3 text-sm text-ink/70"><input className="mt-1" name="bucketIds" type="checkbox" value={bucketId} /><span><span className="block font-bold text-ink">{bucket?.displayTitle ?? bucketId}</span><span className="mt-1 block text-xs text-ink/50">{bucketId}</span></span></label>;
+            const health = healthByBucket.get(bucketId) ?? buildBucketHealth(bucketId, []);
+            return <label key={bucketId} className="flex min-h-36 items-start gap-2 rounded-md border border-line bg-white p-3 text-sm text-ink/70"><input className="mt-1" name="bucketIds" type="checkbox" value={bucketId} /><span className="grid gap-2"><span className="flex flex-wrap items-start justify-between gap-2"><span><span className="block font-bold text-ink">{bucket?.displayTitle ?? bucketId}</span><span className="mt-1 block text-xs text-ink/50">{bucketId}</span></span><span className={`rounded-full px-2 py-1 text-xs font-bold ring-1 ${healthStatusClass(health.status)}`}>{health.status === "Ready" ? "Ready" : health.status}</span></span><span className="text-xs text-ink/55">Total {health.total} · Pending {health.pending} · Approved {health.approved} · Rejected {health.rejected}</span>{health.bestApproved ? <span className="text-xs font-semibold text-ink">Current: {health.bestApproved.company} — {health.bestApprovedScore}/{health.bestApproved.qualityScore ?? 0}</span> : <span className="text-xs font-semibold text-red-700">No approved active offer</span>}{health.warnings.length ? <span className="flex flex-wrap gap-1">{health.warnings.map((warning) => <span key={warning} className="rounded-full bg-amber-50 px-2 py-1 text-xs font-bold text-amber-800 ring-1 ring-amber-200">{warning}</span>)}</span> : null}</span></label>;
           })}
         </div>
         <div className="rounded-md bg-emerald-50 p-3 text-sm text-signal" aria-live="polite">Refresh can take a little while. Keep this page open until the result message appears.</div>
