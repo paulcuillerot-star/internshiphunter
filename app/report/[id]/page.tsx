@@ -21,7 +21,7 @@ export default async function ReportPage({ params }: { params: { id: string } })
         <div>
           <p className="text-sm font-semibold uppercase text-signal">Free report</p>
           <h1 className="mt-3 text-4xl font-bold text-ink">A top opportunity for your profile</h1>
-          <p className="mt-3 max-w-2xl text-ink/70">Selected from your internship track based on your target market, selected tracks, languages and profile details. Cached examples are not live-verified offers.</p>
+          <p className="mt-3 max-w-2xl text-ink/70">Selected from your internship track and Europe market. Cached examples are not live-verified offers. Premium search will use your CV, cities, languages, timing and exclusions.</p>
         </div>
         <Link href={`/premium/${report.id}`} className="inline-flex items-center justify-center rounded-md bg-signal px-5 py-3 text-sm font-bold text-white shadow-[0_18px_38px_rgba(15,118,110,0.26)] transition hover:bg-emerald-700">
           Unlock my personalized live search
