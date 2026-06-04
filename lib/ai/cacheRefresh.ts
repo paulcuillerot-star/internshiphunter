@@ -30,7 +30,7 @@ type RefreshOpportunity = {
 
 type RefreshResponse = { opportunities: RefreshOpportunity[]; parseFailed?: boolean };
 type OpenAIResponse = { output_text?: string; output?: Array<{ type?: string; action?: { sources?: Array<{ url?: string; title?: string; snippet?: string }> }; content?: Array<{ type?: string; text?: string; annotations?: Array<{ type?: string; url?: string; title?: string }> }> }> };
-type RejectionReason = "missing_title_or_company" | "missing_location" | "unusable_url" | "generic_career_page" | "no_open_application_evidence" | "clearly_unpaid" | "not_internship" | "past_deadline";
+type RejectionReason = "missing_title_or_company" | "missing_location" | "unusable_url" | "aggregator_or_job_board_url" | "generic_career_page" | "clearly_unpaid" | "not_internship" | "past_deadline";
 
 const responseSchema = {
   type: "object",
@@ -75,6 +75,7 @@ const responseSchema = {
 };
 
 const genericCareerPaths = new Set(["/careers", "/jobs", "/students", "/internships", "/early-careers", "/graduates"]);
+const weakAggregatorHosts = ["magnet.me", "datainternships.co", "ceruleanjobs.com"];
 const specificJobUrlSignal = /gh_jid|job[-_]?id|jobid|requisition|req[-_]?id|posting|position|vacancy|ashby_jid/i;
 
 function textFromResponse(response: OpenAIResponse) {
@@ -149,6 +150,18 @@ function isUsableUrl(url: string) {
   }
 }
 
+function isAggregatorOrJobBoardUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname.toLowerCase();
+    if (weakAggregatorHosts.some((blockedHost) => host === blockedHost || host.endsWith(`.${blockedHost}`))) return true;
+    return /search|job-search|jobs-search|vacancies|internships-database|internship-database/.test(path) && !specificJobUrlSignal.test(`${path}${parsed.search}`);
+  } catch {
+    return true;
+  }
+}
+
 function isGenericCareerPathOnly(url: string) {
   try {
     const parsed = new URL(url);
@@ -186,7 +199,7 @@ function hasOpenApplicationEvidence(item: RefreshOpportunity) {
 
   try {
     const host = new URL(item.url).hostname.toLowerCase();
-    return /greenhouse|lever|workday|teamtailor|smartrecruiters|ashbyhq|jobs\.ashby|successfactors|bamboohr/.test(host) && !isGenericCareerPathOnly(item.url);
+    return /greenhouse|lever|workday|teamtailor|smartrecruiters|ashbyhq|jobs\.ashby|successfactors|bamboohr|selectminds/.test(host) && !isGenericCareerPathOnly(item.url);
   } catch {
     return false;
   }
@@ -212,11 +225,11 @@ function getOpportunityRejectionReason(item: RefreshOpportunity): RejectionReaso
   if (!item.title?.trim() || !item.company?.trim()) return "missing_title_or_company";
   if (!item.location?.trim() && !item.country?.trim() && !item.city?.trim()) return "missing_location";
   if (!item.url || !isUsableUrl(item.url)) return "unusable_url";
+  if (deadlineIsPast(item.deadline)) return "past_deadline";
+  if (isAggregatorOrJobBoardUrl(item.url)) return "aggregator_or_job_board_url";
   if (isGenericCareerPage(item)) return "generic_career_page";
-  if (!hasOpenApplicationEvidence(item)) return "no_open_application_evidence";
   if (isClearlyUnpaid(`${item.compensation} ${item.rawSourceSnippet}`)) return "clearly_unpaid";
   if (isClearlyNotInternship(item)) return "not_internship";
-  if (deadlineIsPast(item.deadline)) return "past_deadline";
   return null;
 }
 
@@ -238,6 +251,7 @@ function normalizeOpportunity(item: RefreshOpportunity, bucket: SearchBucket, re
   };
 
   if (!item.compensation || /not specified|not listed|unknown|n\/a/i.test(item.compensation)) addRisk("Compensation not specified; confirm before applying.");
+  if (!hasOpenApplicationEvidence(item)) addRisk("Application status unclear; verify the posting before applying.");
   const dateRisk = deadlineRisk(item.deadline, now);
   if (dateRisk) addRisk(dateRisk);
 
