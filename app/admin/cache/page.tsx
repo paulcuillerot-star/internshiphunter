@@ -78,6 +78,7 @@ async function reviewOpportunityAction(formData: FormData) {
 
 function statusClass(status: CacheReviewStatus) { if (status === "approved") return "bg-emerald-50 text-signal ring-emerald-200"; if (status === "rejected") return "bg-red-50 text-red-700 ring-red-200"; return "bg-amber-50 text-amber-700 ring-amber-200"; }
 function formatDate(value?: string) { if (!value) return "Not set"; return new Date(value).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }); }
+function timestamp(value?: string) { return value ? new Date(value).getTime() : 0; }
 function countStatus(items: Array<{ reviewStatus: CacheReviewStatus }>, status: CacheReviewStatus) { return items.filter((item) => item.reviewStatus === status).length; }
 function statusSortValue(status: CacheReviewStatus) { if (status === "pending") return 0; if (status === "approved") return 1; return 2; }
 
@@ -98,7 +99,7 @@ export default async function AdminCachePage({ searchParams }: { searchParams: {
     .map(([bucketId, items]) => ({
       bucketId,
       bucket: bucketLookup.get(bucketId),
-      items: [...items].sort((a, b) => statusSortValue(a.reviewStatus) - statusSortValue(b.reviewStatus) || Number(new Date(b.createdAt)) - Number(new Date(a.createdAt)))
+      items: [...items].sort((a, b) => statusSortValue(a.reviewStatus) - statusSortValue(b.reviewStatus) || timestamp(b.createdAt) - timestamp(a.createdAt))
     }))
     .sort((a, b) => (bucketOrder.get(a.bucketId) ?? 9999) - (bucketOrder.get(b.bucketId) ?? 9999) || a.bucketId.localeCompare(b.bucketId));
   const totalPending = countStatus(opportunities, "pending");
