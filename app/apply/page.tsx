@@ -1,5 +1,6 @@
 "use client";
 
+import * as Sentry from "@sentry/nextjs";
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { internshipTrackLabels } from "@/lib/searchBuckets";
@@ -72,7 +73,23 @@ export default function ApplyPage() {
     }
 
     const response = await fetch("/api/search-internships", { method: "POST", body: data });
-    if (!response.ok) { setLoading(false); setError("The free match could not be created. Please try again."); return; }
+    if (!response.ok) {
+      const errorPayload = await response.json().catch(() => null) as { error?: string; reportId?: string } | null;
+      console.error("[free-match:error]", { status: response.status, error: errorPayload?.error, reportId: errorPayload?.reportId });
+      Sentry.withScope((scope) => {
+        scope.setTag("feature", "free-match");
+        scope.setTag("route", "apply");
+        scope.setContext("free_match_client_failure", {
+          status: response.status,
+          reportId: errorPayload?.reportId,
+          error: errorPayload?.error
+        });
+        Sentry.captureMessage("Free match submission failed on client", "warning");
+      });
+      setLoading(false);
+      setError("We could not create your free match. Please try again or use another email.");
+      return;
+    }
     const result = (await response.json()) as { reportId: string };
     router.push(`/report/${result.reportId}`);
   }
