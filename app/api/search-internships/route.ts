@@ -25,12 +25,12 @@ function currentWeekKey() {
 export async function POST(request: Request) {
   const formData = await request.formData();
   const cv = formData.get("cv");
-  const cvFileName = cv instanceof File ? cv.name : "uploaded-cv.pdf";
+  const cvFileName = cv instanceof File && cv.size > 0 ? cv.name : "Not provided in free flow";
   const now = new Date().toISOString();
   const selectedTracks = listField(formData, "desiredRoles");
-  const selectedMarkets = listField(formData, "targetCountries");
-  const profile: CandidateProfile = { id: makeId(), firstName: String(formData.get("firstName") ?? ""), email: normalizeEmail(String(formData.get("email") ?? "")), cvFileUrl: cvFileName, cvText: `Mock CV extraction for ${cvFileName}. Real PDF parsing will be added after storage is configured.`, targetCountries: selectedMarkets, targetCities: listField(formData, "targetCities"), targetIndustries: [], desiredRoles: selectedTracks, internshipStartDate: String(formData.get("internshipStartDate") ?? ""), internshipDuration: String(formData.get("internshipDuration") ?? ""), languagesSpoken: listField(formData, "languagesSpoken"), minimumCompensation: "", companiesAlreadyAppliedTo: listField(formData, "companiesAlreadyAppliedTo"), idealInternshipDescription: "", thingsToAvoid: String(formData.get("thingsToAvoid") ?? ""), createdAt: now };
-  if (!profile.email || !profile.cvFileUrl || !profile.targetCountries.length || !profile.desiredRoles.length) return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
+  const selectedMarkets = ["Europe"];
+  const profile: CandidateProfile = { id: makeId(), firstName: String(formData.get("firstName") ?? ""), email: normalizeEmail(String(formData.get("email") ?? "")), cvFileUrl: cvFileName, cvText: cv instanceof File && cv.size > 0 ? `Mock CV extraction for ${cvFileName}. Real PDF parsing will be added after storage is configured.` : "CV not provided in the free flow. Premium search will use the CV later.", targetCountries: selectedMarkets, targetCities: listField(formData, "targetCities"), targetIndustries: [], desiredRoles: selectedTracks, internshipStartDate: String(formData.get("internshipStartDate") ?? ""), internshipDuration: String(formData.get("internshipDuration") ?? ""), languagesSpoken: listField(formData, "languagesSpoken"), minimumCompensation: "", companiesAlreadyAppliedTo: listField(formData, "companiesAlreadyAppliedTo"), idealInternshipDescription: "", thingsToAvoid: String(formData.get("thingsToAvoid") ?? ""), createdAt: now };
+  if (!profile.email || !profile.targetCountries.length || !profile.desiredRoles.length) return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
   if (profile.desiredRoles.length > 2) return NextResponse.json({ error: "Select no more than 2 internship tracks." }, { status: 400 });
 
   const reportId = makeId();
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
     const report: InternshipSearchReport = { id: reportId, profileId: profile.id, status: "completed", isPaid: false, matchedSearch, freeOffers, premiumOffers, createdAt: now, updatedAt: new Date().toISOString() };
     await saveReport(report);
     await saveWeeklyFreeUsage(profile.email, currentWeekKey(), reportId);
-    await saveLog({ id: makeId(), profileId: profile.id, reportId, status: "completed", querySummary: `${matchedSearch.bucket.id}: ${matchedSearch.explanation}`, rawResponse: "Free flow reads cached bucket opportunities or mock weekly examples. OpenAI web_search is not called during user submission.", createdAt: new Date().toISOString() });
+    await saveLog({ id: makeId(), profileId: profile.id, reportId, status: "completed", querySummary: `${matchedSearch.bucket.id}: ${matchedSearch.explanation}`, rawResponse: "Free flow reads approved Europe cached bucket opportunities or mock weekly examples. OpenAI web_search is not called during user submission.", createdAt: new Date().toISOString() });
     return NextResponse.json({ reportId, offers: freeOffers, matchedSearch });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown search error";
