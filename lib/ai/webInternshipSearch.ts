@@ -1,4 +1,5 @@
 import "server-only";
+import * as Sentry from "@sentry/nextjs";
 import fs from "node:fs";
 import path from "node:path";
 import { createOpenAIResponse, hasOpenAIConfig } from "@/lib/openai";
@@ -15,7 +16,7 @@ type OpenAITextResponse = {
 
 const outputSchema = {
   type: "json_schema",
-  name: "internship_search_results",
+  name: "premium_internship_search_results",
   strict: true,
   schema: {
     type: "object",
@@ -23,8 +24,8 @@ const outputSchema = {
     properties: {
       offers: {
         type: "array",
-        minItems: 7,
-        maxItems: 7,
+        minItems: 0,
+        maxItems: 3,
         items: {
           type: "object",
           additionalProperties: false,
@@ -51,6 +52,9 @@ const outputSchema = {
             applicationAngle: { type: "string" },
             linkedinMessage: { type: "string" },
             coverLetterHook: { type: "string" },
+            matchType: { type: "string", enum: ["exact", "close", "broadened"] },
+            broadenedReason: { type: "string" },
+            languageFit: { type: "string" },
             isPremium: { type: "boolean" }
           },
           required: [
@@ -76,6 +80,9 @@ const outputSchema = {
             "applicationAngle",
             "linkedinMessage",
             "coverLetterHook",
+            "matchType",
+            "broadenedReason",
+            "languageFit",
             "isPremium"
           ]
         }
@@ -89,7 +96,7 @@ function readPrompt(fileName: string) {
   try {
     return fs.readFileSync(path.join(process.cwd(), "prompts", fileName), "utf8");
   } catch {
-    return "Find a small set of high-quality, recent internship offers and return structured JSON only.";
+    return "Find up to 3 high-quality, recent internship leads and return structured JSON only.";
   }
 }
 
@@ -167,29 +174,17 @@ function parseOffers(text: string) {
 }
 
 function normalizeOffers(offers: Array<Omit<ScoredInternshipOffer, "id">>): ScoredInternshipOffer[] {
-  const normalized = offers.slice(0, 7).map((offer, index) => ({
-    id: `offer_${Date.now()}_${index + 1}`,
+  return offers.slice(0, 3).map((offer, index) => ({
+    id: `premium_offer_${Date.now()}_${index + 1}`,
     ...offer,
-    isPremium: index >= 2
+    isPremium: true
   }));
-
-  if (normalized.length < 7) {
-    const existingIds = new Set(normalized.map((offer) => offer.id));
-    const fillers = mockOffers
-      .filter((offer) => !existingIds.has(offer.id))
-      .slice(0, 7 - normalized.length)
-      .map((offer, index) => ({ ...offer, id: `mock_fallback_${Date.now()}_${index + 1}` }));
-
-    return [...normalized, ...fillers].map((offer, index) => ({ ...offer, isPremium: index >= 2 }));
-  }
-
-  return normalized;
 }
 
 export async function webInternshipSearch(profile: CandidateProfile, cvText: string) {
   if (!hasOpenAIConfig()) {
     return {
-      offers: mockOffers,
+      offers: mockOffers.filter((offer) => offer.isPremium).slice(0, 3),
       querySummary: buildSearchQueries(profile).join("; "),
       rawResponse: "Mock response because OPENAI_API_KEY is not configured."
     };
@@ -221,7 +216,7 @@ export async function webInternshipSearch(profile: CandidateProfile, cvText: str
             candidateProfile: profile,
             cvText,
             suggestedQueries: queries,
-            requiredOutput: "Return exactly 7 offers. First 2 must be free, remaining 5 premium."
+            requiredOutput: "Return up to 3 premium internship leads. Prefer 2 strong language-compatible leads over 3 weak or incompatible leads. If no valid compatible opportunities exist, return an empty offers array."
           },
           null,
           2
@@ -232,10 +227,25 @@ export async function webInternshipSearch(profile: CandidateProfile, cvText: str
 
   assertWebSearchWasUsed(response);
   const text = extractText(response);
-  const offers = parseOffers(text);
+  const offers = normalizeOffers(parseOffers(text));
+
+  if (!offers.length) {
+    Sentry.withScope((scope) => {
+      scope.setTag("feature", "premium-live-search");
+      scope.setContext("premium_live_search_empty", {
+        desiredRoles: profile.desiredRoles,
+        targetCountries: profile.targetCountries,
+        targetCities: profile.targetCities,
+        languagesSpoken: profile.languagesSpoken,
+        queryCount: queries.length
+      });
+      Sentry.captureMessage("Premium live search returned zero valid opportunities", "warning");
+    });
+    throw new Error("No language-compatible premium internship leads were found. Please broaden the search criteria or retry manually.");
+  }
 
   return {
-    offers: normalizeOffers(offers),
+    offers,
     querySummary: queries.join("; "),
     rawResponse: text
   };
