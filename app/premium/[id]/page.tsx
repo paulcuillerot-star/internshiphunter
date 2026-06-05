@@ -60,7 +60,7 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
           <p className="text-sm font-semibold uppercase text-signal">Premium report</p>
           <h1 className="mt-3 text-4xl font-bold text-ink">Personalize your live search before payment</h1>
           <p className="mt-4 max-w-2xl text-ink/70">
-            Premium returns up to 3 curated internship leads when available. Dates and duration can be flexible, but language compatibility is treated as a hard filter.
+            Unlock 3 curated internship leads for €5.90, matched to your profile, cities, languages and timing. If your criteria are narrow, we may include close alternatives and clearly explain what was broadened.
           </p>
           <PremiumSearchForm reportId={report.id} accessToken={report.accessToken} initialInputs={report.premiumInputs} paymentCancelled={paymentCancelled} />
         </div>
