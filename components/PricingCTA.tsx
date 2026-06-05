@@ -8,7 +8,10 @@ export function PricingCTA({ reportId }: { reportId?: string }) {
       <p className="inline-flex rounded-full bg-emerald-400/15 px-3 py-1 text-xs font-bold uppercase tracking-wide text-emerald-200">Premium unlock</p>
       <h3 className="mt-4 text-3xl font-bold">Unlock my personalized live search</h3>
       <p className="mt-3 text-sm leading-6 text-white/75">
-        For €9.90, premium will search exact roles around your CV, target cities, languages, companies already applied to and timing.
+        For €9.90, premium will search for up to 3 curated internship leads around your CV, target cities, languages, companies already applied to and timing.
+      </p>
+      <p className="mt-3 text-sm leading-6 text-white/65">
+        If your criteria are narrow, close alternatives may be included and clearly labelled.
       </p>
       <Link href={href} className="mt-5 inline-flex rounded-md bg-emerald-400 px-5 py-3 text-sm font-bold text-ink shadow-[0_16px_35px_rgba(52,211,153,0.28)] transition hover:bg-emerald-300">
         Unlock for €9.90
