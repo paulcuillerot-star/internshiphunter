@@ -82,6 +82,13 @@ create index if not exists cached_bucket_opportunities_review_status_idx
 on cached_bucket_opportunities(review_status);
 ```
 
+If `search_reports` already exists from an earlier version, run this manual migration before relying on protected report URLs:
+
+```sql
+alter table search_reports
+add column if not exists access_token text;
+```
+
 When Supabase is configured, Internship Hunter persists:
 
 - submitted user profiles
@@ -92,6 +99,8 @@ When Supabase is configured, Internship Hunter persists:
 - cached bucket opportunities from protected admin refreshes
 
 Free reports are limited to 1 per email per week through the `free_usage_limits` table. If the same email submits again in the same week, the API returns the existing report id instead of creating a new report.
+
+Report and premium URLs are protected with a private report access token. New report URLs look like `/report/{reportId}?token={accessToken}` and `/premium/{reportId}?token={accessToken}`. In production, a report cannot be opened with only its id.
 
 When Supabase is not configured, the app keeps the current mock/in-memory fallback so the Vercel demo and local development flow remain usable.
 

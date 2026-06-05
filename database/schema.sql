@@ -22,6 +22,7 @@ create table if not exists search_reports (
   id uuid primary key default gen_random_uuid(),
   profile_id uuid references user_profiles(id) on delete set null,
   status text not null default 'completed',
+  access_token text,
   is_paid boolean not null default false,
   matched_category text,
   matched_region text,
@@ -34,6 +35,9 @@ create table if not exists search_reports (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Existing Supabase projects should also run:
+-- alter table search_reports add column if not exists access_token text;
 
 create table if not exists free_usage_limits (
   id uuid primary key default gen_random_uuid(),
