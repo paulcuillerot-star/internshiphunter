@@ -31,6 +31,11 @@ create table if not exists search_reports (
   matched_explanation text,
   free_offers jsonb not null default '[]'::jsonb,
   premium_offers jsonb not null default '[]'::jsonb,
+  premium_inputs jsonb,
+  premium_search_status text default 'not_started',
+  premium_search_error text,
+  premium_search_started_at timestamptz,
+  premium_search_completed_at timestamptz,
   error_message text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -38,6 +43,12 @@ create table if not exists search_reports (
 
 -- Existing Supabase projects should also run:
 -- alter table search_reports add column if not exists access_token text;
+-- alter table search_reports
+-- add column if not exists premium_inputs jsonb,
+-- add column if not exists premium_search_status text default 'not_started',
+-- add column if not exists premium_search_error text,
+-- add column if not exists premium_search_started_at timestamptz,
+-- add column if not exists premium_search_completed_at timestamptz;
 
 create table if not exists free_usage_limits (
   id uuid primary key default gen_random_uuid(),
