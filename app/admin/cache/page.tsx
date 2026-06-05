@@ -6,7 +6,7 @@ import { RefreshSubmitButton } from "./RefreshSubmitButton";
 import { refreshBucketOpportunities } from "@/lib/ai/cacheRefresh";
 import { hasOpenAIConfig } from "@/lib/openai";
 import { priorityBucketIds, searchBuckets } from "@/lib/searchBuckets";
-import { hasSupabaseConfig, listCachedBucketOpportunities, saveCachedBucketOpportunities, saveLog, updateCachedOpportunityReviewStatus } from "@/lib/store";
+import { hasSupabaseConfig, listCachedBucketOpportunities, listCachedOpportunitiesForBucket, saveCachedBucketOpportunities, saveLog, updateCachedOpportunityReviewStatus } from "@/lib/store";
 import type { CacheReviewStatus } from "@/lib/types";
 
 type CachedOpportunity = Awaited<ReturnType<typeof listCachedBucketOpportunities>>[number];
@@ -68,7 +68,8 @@ async function refreshCacheAction(formData: FormData) {
     const bucket = searchBuckets.find((item) => item.id === bucketId);
     if (!bucket) { errorCount += 1; continue; }
     try {
-      const opportunities = await refreshBucketOpportunities(bucket, refreshRunId, limit);
+      const existingOpportunities = await listCachedOpportunitiesForBucket(bucket.id);
+      const opportunities = await refreshBucketOpportunities(bucket, refreshRunId, limit, existingOpportunities);
       const saved = await saveCachedBucketOpportunities(opportunities);
       savedCount += saved;
       refreshedCount += 1;
