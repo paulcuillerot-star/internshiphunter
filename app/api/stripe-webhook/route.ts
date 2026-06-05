@@ -66,6 +66,7 @@ export async function POST(request: Request) {
     try {
       event = stripe.webhooks.constructEvent(rawBody, signature, process.env.STRIPE_WEBHOOK_SECRET);
     } catch (error) {
+      captureStripeWebhookMessage("Stripe webhook failed", baseContext, "error");
       captureStripeWebhookException(error, baseContext);
       return NextResponse.json({ error: "Webhook signature verification failed." }, { status: 400 });
     }
@@ -86,7 +87,9 @@ export async function POST(request: Request) {
         await markReportPaid(reportId);
         captureStripeWebhookMessage("Stripe report marked paid", { ...eventContext, reportId });
       } catch (error) {
-        captureStripeWebhookException(error, { ...eventContext, reportId });
+        const failedContext = { ...eventContext, reportId };
+        captureStripeWebhookMessage("Stripe webhook failed", failedContext, "error");
+        captureStripeWebhookException(error, failedContext);
         return NextResponse.json({ error: "Failed to mark report as paid." }, { status: 500 });
       }
     }
