@@ -355,7 +355,13 @@ export async function markReportPaid(reportId: string) {
   hydrate();
   const supabase = getSupabaseServerClient();
   if (supabase) {
-    await supabase.from("search_reports").update({ is_paid: true, updated_at: new Date().toISOString() }).eq("id", reportId);
+    const { count, error } = await supabase
+      .from("search_reports")
+      .update({ is_paid: true, updated_at: new Date().toISOString() }, { count: "exact" })
+      .eq("id", reportId);
+
+    if (error) throw error;
+    if (count === 0) throw new Error(`No report found to mark paid: ${reportId}`);
     return;
   }
   const report = reports.get(reportId); if (report) { reports.set(reportId, { ...report, isPaid: true, updatedAt: new Date().toISOString() }); persist(); }
