@@ -15,7 +15,9 @@ type StripeWebhookContext = {
   hasSignature: boolean;
 };
 
-function captureStripeWebhookMessage(message: string, context: StripeWebhookContext, level: Sentry.SeverityLevel = "info") {
+type SentryMessageLevel = "info" | "warning" | "error";
+
+function captureStripeWebhookMessage(message: string, context: StripeWebhookContext, level: SentryMessageLevel = "info") {
   Sentry.withScope((scope) => {
     scope.setTag("feature", "stripe-webhook");
     scope.setTag("eventType", context.eventType ?? "unknown");
