@@ -58,7 +58,7 @@ export function PremiumSearchForm({ reportId, accessToken, initialInputs, paymen
       <div>
         <p className="text-sm font-semibold uppercase text-signal">Premium personalization</p>
         <h2 className="mt-2 text-2xl font-bold text-ink">Tell us what the paid search should target</h2>
-        <p className="mt-2 text-sm leading-6 text-ink/70">Your email is already linked to the free report. These details are saved before payment and used once the secure Stripe confirmation arrives.</p>
+        <p className="mt-2 text-sm leading-6 text-ink/70">Your email is already linked to the free report. For €5.90, these details are saved before payment and used once the secure Stripe confirmation arrives.</p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -93,7 +93,7 @@ export function PremiumSearchForm({ reportId, accessToken, initialInputs, paymen
       </label>
 
       <button type="submit" disabled={loading} className="button-primary w-full sm:w-auto">
-        {loading ? "Saving and opening checkout..." : "Continue to payment"}
+        {loading ? "Saving and opening checkout..." : "Continue to payment (€5.90)"}
       </button>
     </form>
   );
