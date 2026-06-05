@@ -47,9 +47,9 @@ export function PremiumSearchRunner({ reportId, accessToken }: { reportId: strin
       <h1 className="mt-3 text-4xl font-bold text-ink">Finding your premium leads</h1>
       <p className="mt-4 text-ink/70">{message}</p>
       {error ? <p className="mt-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
-      <a href={typeof window === "undefined" ? "#" : `${window.location.pathname}${window.location.search}${window.location.search ? "&" : "?"}refresh=${Date.now()}`} className="mt-6 inline-flex button-secondary">
+      <button type="button" onClick={() => window.location.reload()} className="mt-6 inline-flex button-secondary">
         Refresh status
-      </a>
+      </button>
     </div>
   );
 }
