@@ -1,17 +1,19 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { OfferCard } from "@/components/OfferCard";
-import { getReport } from "@/lib/store";
+import { getReportIfAuthorized } from "@/lib/store";
 import { getStripeClient } from "@/lib/stripe";
 import { CheckoutButton } from "./CheckoutButton";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export default async function PremiumPage({ params, searchParams }: { params: { id: string }; searchParams: { mockPaid?: string; paid?: string } }) {
-  const report = await getReport(params.id);
+export default async function PremiumPage({ params, searchParams }: { params: { id: string }; searchParams: { mockPaid?: string; paid?: string; token?: string } }) {
+  const report = await getReportIfAuthorized(params.id, searchParams.token);
   if (!report) notFound();
 
+  const tokenParam = report.accessToken ? `token=${encodeURIComponent(report.accessToken)}` : "";
+  const paidTokenQuery = [tokenParam, "paid=true"].filter(Boolean).join("&");
   const stripeConfigured = Boolean(getStripeClient());
   const allowMockUnlock = searchParams.mockPaid === "true" && (!stripeConfigured || process.env.NODE_ENV !== "production");
   const unlocked = report.isPaid || allowMockUnlock;
@@ -36,7 +38,7 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
           <p className="mt-4 text-ink/70">
             Stripe sent you back successfully. We are waiting for the secure payment confirmation to finish updating your report.
           </p>
-          <Link href={`/premium/${report.id}?paid=true`} className="mt-6 inline-flex button-primary">
+          <Link href={`/premium/${report.id}?${paidTokenQuery}`} className="mt-6 inline-flex button-primary">
             Refresh unlock status
           </Link>
         </div>
@@ -50,7 +52,7 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
         <p className="text-sm font-semibold uppercase text-signal">Premium report</p>
         <h1 className="mt-3 text-4xl font-bold text-ink">Unlock personalized live search</h1>
         <p className="mt-4 text-ink/70">Premium will run live AI research later with exact target countries and cities, CV-based matching, language filtering, companies already applied to, application angles and outreach support.</p>
-        <CheckoutButton reportId={report.id} />
+        <CheckoutButton reportId={report.id} accessToken={report.accessToken} />
       </div>
     </section>
   );
