@@ -33,7 +33,7 @@ export async function POST(request: Request) {
       {
         price_data: {
           currency: "eur",
-          unit_amount: 990,
+          unit_amount: 590,
           product_data: {
             name: "Internship Hunter premium report"
           }
