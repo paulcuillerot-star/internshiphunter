@@ -21,7 +21,7 @@ export default async function ReportPage({ params }: { params: { id: string } })
         <div>
           <p className="text-sm font-semibold uppercase text-signal">Free report</p>
           <h1 className="mt-3 text-4xl font-bold text-ink">A top opportunity for your profile</h1>
-          <p className="mt-3 max-w-2xl text-ink/70">Selected from your internship track and Europe market. Cached examples are not live-verified offers. Premium search will use your CV, cities, languages, timing and exclusions.</p>
+          <p className="mt-3 max-w-2xl text-ink/70">Here is one high-signal internship opportunity selected from our reviewed Europe cache. Premium search unlocks CV-based matching, exact cities, languages, timing, exclusions and application angles.</p>
         </div>
         <Link href={`/premium/${report.id}`} className="inline-flex items-center justify-center rounded-md bg-signal px-5 py-3 text-sm font-bold text-white shadow-[0_18px_38px_rgba(15,118,110,0.26)] transition hover:bg-emerald-700">
           Unlock my personalized live search
@@ -29,29 +29,6 @@ export default async function ReportPage({ params }: { params: { id: string } })
       </div>
 
       <div className="mt-8"><SearchSummary profile={profile} /></div>
-
-      {report.matchedSearch ? (
-        <section className="mt-6 overflow-hidden rounded-xl border border-emerald-100 bg-white shadow-soft ring-1 ring-emerald-50">
-          <div className="h-1.5 bg-gradient-to-r from-signal via-emerald-400 to-lime-300" />
-          <div className="p-6">
-            <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
-              <div>
-                <p className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-signal ring-1 ring-emerald-200">Matched track</p>
-                <h2 className="mt-4 text-3xl font-black tracking-tight text-ink sm:text-4xl">{report.matchedSearch.bucket.displayTitle}</h2>
-                <p className="mt-2 text-sm font-semibold text-ink/60">{report.matchedSearch.category.name}</p>
-              </div>
-              <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-4 text-left md:min-w-56">
-                <p className="text-xs font-bold uppercase tracking-wide text-signal">Closest market</p>
-                <p className="mt-1 text-2xl font-black text-ink">{report.matchedSearch.region}</p>
-              </div>
-            </div>
-            <div className="mt-5 rounded-lg border border-line bg-mist/70 p-4">
-              <p className="text-sm font-bold text-ink">Why this track fits</p>
-              <p className="mt-2 text-sm leading-6 text-ink/70">{report.matchedSearch.explanation}</p>
-            </div>
-          </div>
-        </section>
-      ) : null}
 
       <div className="mt-8 grid gap-5">
         {visibleFreeOffers.map((offer) => <OfferCard key={offer.id} offer={offer} reportId={report.id} />)}
