@@ -20,6 +20,7 @@ function bestOffer(offers: ScoredInternshipOffer[]) { return [...offers].sort((a
 function createMockReportForId(id: string): InternshipSearchReport { const now = new Date().toISOString(); const matchedSearch = matchSearchBucket(mockCandidateProfile); const topOffer = bestOffer(matchedSearch.bucket.weeklyFreeOffers); return { ...mockReport, id, profileId: mockCandidateProfile.id, matchedSearch, freeOffers: topOffer ? [topOffer] : [], premiumOffers: mockReport.premiumOffers.map((offer) => ({ ...offer, isPremium: true })), createdAt: now, updatedAt: now }; }
 function hydrate() { if (hydrated || !canUseFileFallback() || !fs.existsSync(storeFile)) { hydrated = true; return; } try { const snapshot = JSON.parse(fs.readFileSync(storeFile, "utf8")) as Partial<StoreSnapshot>; snapshot.profiles?.forEach((item) => profiles.set(item.id, item)); snapshot.reports?.forEach((item) => reports.set(item.id, item)); snapshot.feedback?.forEach((item) => feedback.set(item.id, item)); snapshot.logs?.forEach((item) => logs.set(item.id, item)); } catch { } finally { hydrated = true; } }
 function persist() { if (!canUseFileFallback()) return; fs.writeFileSync(storeFile, JSON.stringify({ profiles: Array.from(profiles.values()), reports: Array.from(reports.values()), feedback: Array.from(feedback.values()), logs: Array.from(logs.values()) }, null, 2)); }
+function missingAccessTokenColumn(error: { code?: string; message?: string }) { return error.code === "PGRST204" || /access_token/i.test(error.message ?? ""); }
 
 function mapProfileRow(row: Record<string, unknown>): CandidateProfile {
   const email = String(row.email ?? "");
@@ -58,6 +59,7 @@ function mapReportRow(row: Record<string, unknown>): InternshipSearchReport {
     id: String(row.id),
     profileId: String(row.profile_id ?? mockCandidateProfile.id),
     status: (row.status as InternshipSearchReport["status"] | null) ?? "completed",
+    accessToken: row.access_token ? String(row.access_token) : undefined,
     isPaid: Boolean(row.is_paid),
     matchedSearch,
     freeOffers: (row.free_offers as ScoredInternshipOffer[] | null) ?? [],
@@ -208,7 +210,14 @@ export async function saveReport(report: InternshipSearchReport) {
   hydrate();
   const supabase = getSupabaseServerClient();
   if (supabase) {
-    const { error } = await supabase.from("search_reports").insert({ id: report.id, profile_id: report.profileId, status: report.status, is_paid: Boolean(report.isPaid), matched_category: report.matchedSearch?.category.name, matched_region: report.matchedSearch?.region, matched_bucket_id: report.matchedSearch?.bucket.id, matched_bucket_title: report.matchedSearch?.bucket.displayTitle, matched_explanation: report.matchedSearch?.explanation, free_offers: report.freeOffers, premium_offers: report.premiumOffers, error_message: report.errorMessage, updated_at: report.updatedAt });
+    const row = { id: report.id, profile_id: report.profileId, status: report.status, access_token: report.accessToken, is_paid: Boolean(report.isPaid), matched_category: report.matchedSearch?.category.name, matched_region: report.matchedSearch?.region, matched_bucket_id: report.matchedSearch?.bucket.id, matched_bucket_title: report.matchedSearch?.bucket.displayTitle, matched_explanation: report.matchedSearch?.explanation, free_offers: report.freeOffers, premium_offers: report.premiumOffers, error_message: report.errorMessage, updated_at: report.updatedAt };
+    const { error } = await supabase.from("search_reports").insert(row);
+    if (error && missingAccessTokenColumn(error)) {
+      const { access_token, ...rowWithoutAccessToken } = row;
+      const retry = await supabase.from("search_reports").insert(rowWithoutAccessToken);
+      if (retry.error) throw retry.error;
+      return;
+    }
     if (error) throw error;
     return;
   }
@@ -223,6 +232,14 @@ export async function getReport(id: string) {
     return data ? mapReportRow(data) : undefined;
   }
   const report = reports.get(id); if (report) return report; return createMockReportForId(id);
+}
+
+export async function getReportIfAuthorized(id: string, token?: string) {
+  const report = await getReport(id);
+  if (!report) return undefined;
+  if (report.accessToken && token && token === report.accessToken) return report;
+  if (process.env.NODE_ENV !== "production" && !report.accessToken) return report;
+  return undefined;
 }
 
 export async function getWeeklyFreeUsageReportId(email: string, weekKey: string) {
