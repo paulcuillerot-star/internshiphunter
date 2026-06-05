@@ -1,7 +1,8 @@
 import Link from "next/link";
 
-export function PricingCTA({ reportId }: { reportId?: string }) {
-  const href = reportId ? `/premium/${reportId}` : "/apply";
+export function PricingCTA({ reportId, accessToken }: { reportId?: string; accessToken?: string }) {
+  const tokenParam = accessToken ? `?token=${encodeURIComponent(accessToken)}` : "";
+  const href = reportId ? `/premium/${reportId}${tokenParam}` : "/apply";
 
   return (
     <div className="rounded-lg border border-emerald-400/30 bg-ink p-6 text-white shadow-soft">
