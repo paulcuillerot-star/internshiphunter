@@ -1,14 +1,23 @@
-import type { ScoredInternshipOffer } from "@/lib/types";
+import type { PremiumMatchType, ScoredInternshipOffer } from "@/lib/types";
 import { FeedbackButtons } from "./FeedbackButtons";
 import { ScoreBadge } from "./ScoreBadge";
 
+const matchLabels: Record<PremiumMatchType, string> = {
+  exact: "Exact match",
+  close: "Close match",
+  broadened: "Broadened match"
+};
+
 export function OfferCard({ offer, reportId, premium = false }: { offer: ScoredInternshipOffer; reportId: string; premium?: boolean }) {
+  const matchType = offer.matchType ?? "close";
+
   return (
     <article className="overflow-hidden rounded-xl border border-emerald-100 bg-white shadow-soft ring-1 ring-emerald-50">
       <div className="h-1.5 bg-gradient-to-r from-signal via-emerald-400 to-lime-300" />
       <div className="p-6 sm:p-8">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-3xl">
+            {premium ? <p className="mb-3 inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold uppercase tracking-wide text-signal ring-1 ring-emerald-100">{matchLabels[matchType]}</p> : null}
             <p className="text-3xl font-black tracking-tight text-signal sm:text-4xl">{offer.company}</p>
             <h3 className="mt-3 text-xl font-bold leading-tight text-ink sm:text-2xl">{offer.title}</h3>
             <p className="mt-3 text-base font-semibold text-ink/65 sm:text-lg">{offer.location}</p>
@@ -20,6 +29,13 @@ export function OfferCard({ offer, reportId, premium = false }: { offer: ScoredI
             </div>
           ) : null}
         </div>
+
+        {premium && (offer.languageFit || offer.broadenedReason) ? (
+          <div className="mt-5 grid gap-3 rounded-lg border border-emerald-100 bg-emerald-50/60 p-4 text-sm text-emerald-950 md:grid-cols-2">
+            {offer.languageFit ? <p><span className="font-bold text-signal">Language fit:</span> {offer.languageFit}</p> : null}
+            {offer.broadenedReason ? <p><span className="font-bold text-signal">Broadening:</span> {offer.broadenedReason}</p> : null}
+          </div>
+        ) : null}
 
         <p className="mt-7 max-w-3xl text-sm leading-6 text-ink/75 sm:text-base">{offer.descriptionSummary}</p>
 
