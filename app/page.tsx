@@ -13,14 +13,14 @@ const heroChips = [
 const steps = [
   ["1", "Share your search", "Upload your CV and tell us the countries and roles you want. Only the essentials are required."],
   ["2", "Get your internship track", "We match you to a clear business-school internship track and show 2 weekly cached examples."],
-  ["3", "Unlock live personalized search", "When you want exact opportunities, premium will run a live personalized search around your CV and targets."]
+  ["3", "Unlock live personalized search", "When you want exact opportunities, premium will run a live personalized search for up to 3 curated internship leads."]
 ];
 
 const faqs = [
   ["Does the free flow run live AI search?", "No. The free demo uses rule-based matching and cached weekly examples to keep the experience fast and cost-controlled."],
   ["Do you scrape LinkedIn?", "No. LinkedIn scraping is intentionally not supported."],
   ["Can it work without API keys?", "Yes. The MVP uses realistic mock data until OpenAI, Supabase and Stripe are configured."],
-  ["What happens after unlock?", "Premium live search will later use exact countries, cities, CV context, languages and companies already applied to."]
+  ["What happens after unlock?", "Premium live search will later use exact countries, cities, CV context, languages and companies already applied to, then return up to 3 curated leads when available."]
 ];
 
 export default function HomePage() {
