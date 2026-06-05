@@ -1,5 +1,6 @@
 "use client";
 
+import type { FormEvent } from "react";
 import { useState } from "react";
 import type { PremiumSearchInputs } from "@/lib/types";
 
@@ -11,7 +12,7 @@ export function PremiumSearchForm({ reportId, accessToken, initialInputs, paymen
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
     setError("");
