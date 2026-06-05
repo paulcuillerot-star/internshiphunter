@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 
-export function CheckoutButton({ reportId }: { reportId: string }) {
+export function CheckoutButton({ reportId, accessToken }: { reportId: string; accessToken?: string }) {
   const [loading, setLoading] = useState(false);
   async function checkout() {
     setLoading(true);
-    const response = await fetch("/api/create-checkout-session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reportId }) });
+    const response = await fetch("/api/create-checkout-session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reportId, token: accessToken }) });
     const data = (await response.json()) as { url: string };
     window.location.href = data.url;
   }
