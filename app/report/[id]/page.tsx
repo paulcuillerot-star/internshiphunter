@@ -14,6 +14,7 @@ export default async function ReportPage({ params }: { params: { id: string } })
   if (!report) notFound();
   const profile = await getProfile(report.profileId);
   const visibleFreeOffers = report.freeOffers.slice(0, 1);
+  const lockedPremiumOffers = report.premiumOffers.slice(0, 3);
 
   return (
     <section className="section">
@@ -36,7 +37,7 @@ export default async function ReportPage({ params }: { params: { id: string } })
 
       <div className="mt-10 grid gap-5 lg:grid-cols-[1fr_0.75fr]">
         <div className="grid gap-5">
-          {report.premiumOffers.map((offer, index) => <LockedOfferCard key={offer.id} index={index + 1} />)}
+          {lockedPremiumOffers.map((offer, index) => <LockedOfferCard key={offer.id} index={index + 1} />)}
         </div>
         <PricingCTA reportId={report.id} />
       </div>
