@@ -90,8 +90,9 @@ export default function ApplyPage() {
       setError("We could not create your free match. Please try again or use another email.");
       return;
     }
-    const result = (await response.json()) as { reportId: string };
-    router.push(`/report/${result.reportId}`);
+    const result = (await response.json()) as { reportId: string; accessToken?: string };
+    const tokenParam = result.accessToken ? `?token=${encodeURIComponent(result.accessToken)}` : "";
+    router.push(`/report/${result.reportId}${tokenParam}`);
   }
 
   return (
