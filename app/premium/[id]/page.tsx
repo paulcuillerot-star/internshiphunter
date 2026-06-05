@@ -14,6 +14,7 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
 
   const tokenParam = report.accessToken ? `token=${encodeURIComponent(report.accessToken)}` : "";
   const paidTokenQuery = [tokenParam, "paid=true"].filter(Boolean).join("&");
+  const paidHref = `/premium/${report.id}${paidTokenQuery ? `?${paidTokenQuery}` : ""}`;
   const stripeConfigured = Boolean(getStripeClient());
   const allowMockUnlock = searchParams.mockPaid === "true" && (!stripeConfigured || process.env.NODE_ENV !== "production");
   const unlocked = report.isPaid || allowMockUnlock;
@@ -38,7 +39,7 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
           <p className="mt-4 text-ink/70">
             Stripe sent you back successfully. We are waiting for the secure payment confirmation to finish updating your report.
           </p>
-          <Link href={`/premium/${report.id}?${paidTokenQuery}`} className="mt-6 inline-flex button-primary">
+          <Link href={paidHref} className="mt-6 inline-flex button-primary">
             Refresh unlock status
           </Link>
         </div>
