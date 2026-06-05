@@ -77,7 +77,7 @@ export async function POST(request: Request) {
     const matchedSearch = matchSearchBucket(profile);
     const topOffer = await getBestCachedOpportunityForProfile(profile, matchedSearch);
     const freeOffers = topOffer ? [topOffer] : [];
-    const premiumOffers = mockOffers.filter((offer) => offer.isPremium).slice(0, 5);
+    const premiumOffers = mockOffers.filter((offer) => offer.isPremium).slice(0, 3);
     const report: InternshipSearchReport = { id: reportId, profileId: profile.id, status: "completed", accessToken, isPaid: false, matchedSearch, freeOffers, premiumOffers, createdAt: now, updatedAt: new Date().toISOString() };
     await saveReport(report);
     await saveWeeklyFreeUsage(profile.email, currentWeekKey(), reportId);
