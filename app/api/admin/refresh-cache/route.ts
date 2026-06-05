@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { refreshBucketOpportunities } from "@/lib/ai/cacheRefresh";
 import { hasOpenAIConfig } from "@/lib/openai";
 import { priorityBucketIds, searchBuckets } from "@/lib/searchBuckets";
-import { hasSupabaseConfig, saveCachedBucketOpportunities, saveLog } from "@/lib/store";
+import { hasSupabaseConfig, listCachedOpportunitiesForBucket, saveCachedBucketOpportunities, saveLog } from "@/lib/store";
 import type { SearchBucket } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -58,7 +58,8 @@ export async function POST(request: Request) {
 
   for (const bucket of buckets) {
     try {
-      const opportunities = await refreshBucketOpportunities(bucket, refreshRunId, limit);
+      const existingOpportunities = await listCachedOpportunitiesForBucket(bucket.id);
+      const opportunities = await refreshBucketOpportunities(bucket, refreshRunId, limit, existingOpportunities);
       const saved = await saveCachedBucketOpportunities(opportunities);
       savedOpportunityCount += saved;
       await saveLog({ id: crypto.randomUUID(), profileId: "", reportId: "", status: "completed", querySummary: `Cache refresh ${refreshRunId} saved ${saved} opportunities for ${bucket.id}.`, rawResponse: `OpenAI web_search cache refresh completed for ${bucket.id}.`, createdAt: new Date().toISOString() });
