@@ -1,10 +1,11 @@
 export type FeedbackType = "relevant" | "not_relevant" | "expired" | "already_applied" | "wrong_country" | "wrong_role" | "too_senior" | "not_a_real_internship";
 export type CacheReviewStatus = "pending" | "approved" | "rejected";
+export type PremiumMatchType = "exact" | "close" | "broadened";
 export type CandidateProfile = { id: string; firstName: string; email: string; cvFileUrl: string; cvText: string; targetCountries: string[]; targetCities: string[]; targetIndustries: string[]; desiredRoles: string[]; internshipStartDate: string; internshipDuration: string; languagesSpoken: string[]; minimumCompensation?: string; companiesAlreadyAppliedTo: string[]; idealInternshipDescription: string; thingsToAvoid: string; createdAt: string };
 export type SearchCategory = { id: string; name: string };
 export type SearchRegion = "Europe" | "International outside Europe" | "Switzerland" | "Australia" | "Singapore" | "North America" | "Middle East" | "Asia-Pacific" | "International / Remote";
 export type InternshipOffer = { id: string; title: string; company: string; location: string; country: string; city: string; url: string; source: string; deadline: string; publishedDate: string; descriptionSummary: string; requirementsSummary: string; compensation: string; languageRequirements: string[]; rawSourceSnippet: string };
-export type ScoredInternshipOffer = InternshipOffer & { matchScore: number; qualityScore: number; probabilityOfInterview: number; whyItMatches: string[]; risks: string[]; applicationAngle: string; linkedinMessage: string; coverLetterHook: string; isPremium: boolean };
+export type ScoredInternshipOffer = InternshipOffer & { matchScore: number; qualityScore: number; probabilityOfInterview: number; whyItMatches: string[]; risks: string[]; applicationAngle: string; linkedinMessage: string; coverLetterHook: string; isPremium: boolean; matchType?: PremiumMatchType; broadenedReason?: string; languageFit?: string };
 export type WeeklyFreeOffer = ScoredInternshipOffer & { isPremium: false };
 export type SearchBucket = { id: string; category: SearchCategory; region: SearchRegion; displayTitle: string; shortDescription: string; whyThisBucketFits: string; weeklyFreeOffers: WeeklyFreeOffer[]; fallbackBucketId: string };
 export type MatchedSearchBucket = { category: SearchCategory; region: SearchRegion; bucket: SearchBucket; explanation: string };
