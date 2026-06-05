@@ -38,6 +38,17 @@ const bucketFitKeywords: Record<string, string[]> = {
   strategy_consulting_project_management: ["strategy", "consulting", "project", "transformation", "business analyst", "analyst", "pm"]
 };
 
+const shortBucketLabels: Record<string, string> = {
+  sales_bd_partnerships_europe: "Sales",
+  marketing_brand_growth_europe: "Marketing",
+  strategy_consulting_project_management_europe: "Strategy",
+  finance_investment_ma_europe: "Finance",
+  startup_founder_operations_europe: "Startup",
+  product_tech_business_data_europe: "Product/Data",
+  luxury_retail_consumer_ecommerce_europe: "Luxury",
+  sports_events_entertainment_hospitality_europe: "Sports"
+};
+
 function isAuthorized(password?: string) { const configuredPassword = process.env.ADMIN_PASSWORD; const isLocalDev = process.env.NODE_ENV !== "production"; return configuredPassword ? password === configuredPassword : isLocalDev; }
 function cachePath(password?: string, message?: string) { const params = new URLSearchParams(); if (password) params.set("password", password); if (message) params.set("message", message); const query = params.toString(); return `/admin/cache${query ? `?${query}` : ""}`; }
 
@@ -149,13 +160,15 @@ function buildBucketHealth(bucketId: string, items: CachedOpportunity[]): Bucket
   };
 }
 
-export default async function AdminCachePage({ searchParams }: { searchParams: { password?: string; message?: string } }) {
+export default async function AdminCachePage({ searchParams }: { searchParams: { password?: string; message?: string; bucket?: string } }) {
   const configuredPassword = process.env.ADMIN_PASSWORD;
   const authorized = isAuthorized(searchParams.password);
   if (!authorized) {
     return <section className="section"><h1 className="text-3xl font-bold text-ink">Admin access</h1>{!configuredPassword ? <p className="mt-3 max-w-md text-sm text-ink/70">Set ADMIN_PASSWORD before using the cache review dashboard in production.</p> : null}<form className="mt-6 flex max-w-md gap-3"><input className="field" name="password" type="password" placeholder="Admin password" /><button className="button-primary">Enter</button></form></section>;
   }
   const opportunities = await listCachedBucketOpportunities();
+  const activeBucketIds = new Set(priorityBucketIds);
+  const selectedBucketId = searchParams.bucket && activeBucketIds.has(searchParams.bucket) ? searchParams.bucket : "all";
   const bucketOrder = new Map(priorityBucketIds.map((bucketId, index) => [bucketId, index]));
   const bucketLookup = new Map(searchBuckets.map((bucket) => [bucket.id, bucket]));
   const grouped = new Map<string, typeof opportunities>();
@@ -170,9 +183,21 @@ export default async function AdminCachePage({ searchParams }: { searchParams: {
       items: [...items].sort((a, b) => statusSortValue(a.reviewStatus) - statusSortValue(b.reviewStatus) || timestamp(b.createdAt) - timestamp(a.createdAt))
     }))
     .sort((a, b) => (bucketOrder.get(a.bucketId) ?? 9999) - (bucketOrder.get(b.bucketId) ?? 9999) || a.bucketId.localeCompare(b.bucketId));
-  const totalPending = countStatus(opportunities, "pending");
-  const totalApproved = countStatus(opportunities, "approved");
-  const totalRejected = countStatus(opportunities, "rejected");
+  const activeBucketGroups = bucketGroups.filter((group) => activeBucketIds.has(group.bucketId));
+  const legacyBucketGroups = bucketGroups.filter((group) => !activeBucketIds.has(group.bucketId));
+  const visibleBucketGroups = selectedBucketId === "all" ? activeBucketGroups : activeBucketGroups.filter((group) => group.bucketId === selectedBucketId);
+  const activeOpportunities = opportunities.filter((item) => activeBucketIds.has(item.bucketId));
+  const totalPending = countStatus(activeOpportunities, "pending");
+  const totalApproved = countStatus(activeOpportunities, "approved");
+  const totalRejected = countStatus(activeOpportunities, "rejected");
+
+  const renderOpportunityCard = (offer: CachedOpportunity, muted = false) => (
+    <article key={offer.id} className={`rounded-lg border border-line bg-white p-5 shadow-soft ${muted ? "opacity-80" : ""}`}>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold uppercase ring-1 ${statusClass(offer.reviewStatus)}`}>{offer.reviewStatus}</span><p className="mt-3 text-xs font-semibold uppercase text-ink/40">{offer.bucketId}</p><h2 className="mt-1 text-2xl font-bold text-ink">{offer.title}</h2><p className="mt-2 text-xl font-black text-signal">{offer.company}</p><p className="text-sm text-ink/60">{offer.location}</p></div><div className="flex flex-wrap gap-2"><form action={reviewOpportunityAction}><input type="hidden" name="password" value={searchParams.password ?? ""} /><input type="hidden" name="id" value={offer.id} /><input type="hidden" name="status" value="approved" /><button className="rounded-md bg-signal px-4 py-2 text-sm font-bold text-white" type="submit">Approve</button></form><form action={reviewOpportunityAction}><input type="hidden" name="password" value={searchParams.password ?? ""} /><input type="hidden" name="id" value={offer.id} /><input type="hidden" name="status" value="rejected" /><button className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-700" type="submit">Reject</button></form></div></div>
+      <div className="mt-5 grid gap-4 text-sm md:grid-cols-3"><p><span className="font-bold text-ink">Match:</span> {offer.matchScore}</p><p><span className="font-bold text-ink">Quality:</span> {offer.qualityScore}</p><p><span className="font-bold text-ink">Compensation:</span> {offer.compensation || "Not specified"}</p><p><span className="font-bold text-ink">Deadline:</span> {offer.deadline || "Not specified"}</p><p><span className="font-bold text-ink">Verified:</span> {formatDate(offer.verifiedAt)}</p><p><span className="font-bold text-ink">Expires:</span> {formatDate(offer.expiresAt)}</p><p><span className="font-bold text-ink">Created:</span> {formatDate(offer.createdAt)}</p><p><span className="font-bold text-ink">Reviewed:</span> {formatDate(offer.reviewedAt)}</p><p><a className="font-bold text-signal underline" href={offer.url} target="_blank" rel="noreferrer">Open job page</a></p></div>
+      <div className="mt-5 grid gap-4 md:grid-cols-2"><div className="rounded-md bg-emerald-50 p-4"><p className="text-sm font-bold text-signal">Why it matches</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-ink/70">{offer.whyItMatches.map((item) => <li key={item}>{item}</li>)}</ul></div><div className="rounded-md bg-amber-50 p-4"><p className="text-sm font-bold text-amber-800">Risks</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-ink/70">{offer.risks.map((item) => <li key={item}>{item}</li>)}</ul></div></div>
+    </article>
+  );
 
   return (
     <section className="section">
@@ -192,28 +217,36 @@ export default async function AdminCachePage({ searchParams }: { searchParams: {
           {priorityBucketIds.map((bucketId) => {
             const bucket = searchBuckets.find((item) => item.id === bucketId);
             const health = healthByBucket.get(bucketId) ?? buildBucketHealth(bucketId, []);
-            return <label key={bucketId} className="flex min-h-36 items-start gap-2 rounded-md border border-line bg-white p-3 text-sm text-ink/70"><input className="mt-1" name="bucketIds" type="checkbox" value={bucketId} /><span className="grid gap-2"><span className="flex flex-wrap items-start justify-between gap-2"><span><span className="block font-bold text-ink">{bucket?.displayTitle ?? bucketId}</span><span className="mt-1 block text-xs text-ink/50">{bucketId}</span></span><span className={`rounded-full px-2 py-1 text-xs font-bold ring-1 ${healthStatusClass(health.status)}`}>{health.status === "Ready" ? "Ready" : health.status}</span></span><span className="text-xs text-ink/55">Total {health.total} · Pending {health.pending} · Approved {health.approved} · Rejected {health.rejected}</span>{health.bestApproved ? <span className="text-xs font-semibold text-ink">Current: {health.bestApproved.company} — {health.bestApprovedScore}/{health.bestApproved.qualityScore ?? 0}</span> : <span className="text-xs font-semibold text-red-700">No approved active offer</span>}{health.warnings.length ? <span className="flex flex-wrap gap-1">{health.warnings.map((warning) => <span key={warning} className="rounded-full bg-amber-50 px-2 py-1 text-xs font-bold text-amber-800 ring-1 ring-amber-200">{warning}</span>)}</span> : null}</span></label>;
+            return <label key={bucketId} className="flex min-h-36 items-start gap-2 rounded-md border border-line bg-white p-3 text-sm text-ink/70"><input className="mt-1" name="bucketIds" type="checkbox" value={bucketId} /><span className="grid gap-2"><span className="flex flex-wrap items-start justify-between gap-2"><span><span className="block font-bold text-ink">{bucket?.displayTitle ?? bucketId}</span><span className="mt-1 block text-xs text-ink/50">{bucketId}</span></span><span className={`rounded-full px-2 py-1 text-xs font-bold ring-1 ${healthStatusClass(health.status)}`}>{health.status}</span></span><span className="text-xs text-ink/55">Total {health.total} · Pending {health.pending} · Approved {health.approved} · Rejected {health.rejected}</span>{health.bestApproved ? <span className="text-xs font-semibold text-ink">Current approved: {health.bestApproved.company} — {health.bestApproved.title} — {health.bestApprovedScore}/{health.bestApproved.qualityScore ?? 0}</span> : <span className="text-xs font-semibold text-red-700">No approved active offer</span>}{health.warnings.length ? <span className="flex flex-wrap gap-1">{health.warnings.map((warning) => <span key={warning} className="rounded-full bg-amber-50 px-2 py-1 text-xs font-bold text-amber-800 ring-1 ring-amber-200">{warning}</span>)}</span> : null}</span></label>;
           })}
         </div>
         <div className="rounded-md bg-emerald-50 p-3 text-sm text-signal" aria-live="polite">Refresh can take a little while. Keep this page open until the result message appears.</div>
         <RefreshSubmitButton />
       </form>
+      <form action="/admin/cache" className="mt-6 flex flex-col gap-3 rounded-lg border border-line bg-white p-4 shadow-soft sm:flex-row sm:items-end">
+        <input type="hidden" name="password" value={searchParams.password ?? ""} />
+        <label className="grid flex-1 gap-2"><span className="label">Filter cached opportunities</span><select className="field" name="bucket" defaultValue={selectedBucketId}><option value="all">All active buckets</option>{priorityBucketIds.map((bucketId) => { const bucket = bucketLookup.get(bucketId); return <option key={bucketId} value={bucketId}>{bucket?.displayTitle ?? bucketId}</option>; })}</select></label>
+        <button className="button-primary" type="submit">Apply filter</button>
+      </form>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {priorityBucketIds.map((bucketId) => <a key={bucketId} href={`#${bucketId}`} className="rounded-full border border-line bg-white px-3 py-1 text-xs font-bold text-ink/60 hover:border-signal hover:text-signal">{shortBucketLabels[bucketId] ?? bucketId}</a>)}
+      </div>
       <div className="mt-8 rounded-lg border border-line bg-white p-5 shadow-soft">
-        <p className="text-sm font-bold uppercase text-ink/50">Cached opportunities summary</p>
+        <p className="text-sm font-bold uppercase text-ink/50">Active cached opportunities summary</p>
         <div className="mt-4 grid gap-3 sm:grid-cols-4">
-          <div><p className="text-3xl font-black text-ink">{opportunities.length}</p><p className="text-xs font-bold uppercase text-ink/45">Total</p></div>
+          <div><p className="text-3xl font-black text-ink">{activeOpportunities.length}</p><p className="text-xs font-bold uppercase text-ink/45">Total</p></div>
           <div><p className="text-3xl font-black text-amber-700">{totalPending}</p><p className="text-xs font-bold uppercase text-ink/45">Pending</p></div>
           <div><p className="text-3xl font-black text-signal">{totalApproved}</p><p className="text-xs font-bold uppercase text-ink/45">Approved</p></div>
           <div><p className="text-3xl font-black text-red-700">{totalRejected}</p><p className="text-xs font-bold uppercase text-ink/45">Rejected</p></div>
         </div>
       </div>
       <div className="mt-8 grid gap-8">
-        {bucketGroups.length ? bucketGroups.map(({ bucketId, bucket, items }) => {
+        {visibleBucketGroups.length ? visibleBucketGroups.map(({ bucketId, bucket, items }) => {
           const pending = countStatus(items, "pending");
           const approved = countStatus(items, "approved");
           const rejected = countStatus(items, "rejected");
           return (
-            <section key={bucketId} className="grid gap-4">
+            <section key={bucketId} id={bucketId} className="scroll-mt-6 grid gap-4">
               <div className="rounded-lg border border-line bg-mist p-5">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div>
@@ -230,18 +263,13 @@ export default async function AdminCachePage({ searchParams }: { searchParams: {
                 </div>
               </div>
               <div className="grid gap-5">
-                {items.map((offer) => (
-                  <article key={offer.id} className="rounded-lg border border-line bg-white p-5 shadow-soft">
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div><span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold uppercase ring-1 ${statusClass(offer.reviewStatus)}`}>{offer.reviewStatus}</span><p className="mt-3 text-xs font-semibold uppercase text-ink/40">{offer.bucketId}</p><h2 className="mt-1 text-2xl font-bold text-ink">{offer.title}</h2><p className="mt-1 font-semibold text-signal">{offer.company}</p><p className="text-sm text-ink/60">{offer.location}</p></div><div className="flex flex-wrap gap-2"><form action={reviewOpportunityAction}><input type="hidden" name="password" value={searchParams.password ?? ""} /><input type="hidden" name="id" value={offer.id} /><input type="hidden" name="status" value="approved" /><button className="rounded-md bg-signal px-4 py-2 text-sm font-bold text-white" type="submit">Approve</button></form><form action={reviewOpportunityAction}><input type="hidden" name="password" value={searchParams.password ?? ""} /><input type="hidden" name="id" value={offer.id} /><input type="hidden" name="status" value="rejected" /><button className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-700" type="submit">Reject</button></form></div></div>
-                    <div className="mt-5 grid gap-4 text-sm md:grid-cols-3"><p><span className="font-bold text-ink">Match:</span> {offer.matchScore}</p><p><span className="font-bold text-ink">Quality:</span> {offer.qualityScore}</p><p><span className="font-bold text-ink">Compensation:</span> {offer.compensation || "Not specified"}</p><p><span className="font-bold text-ink">Deadline:</span> {offer.deadline || "Not specified"}</p><p><span className="font-bold text-ink">Verified:</span> {formatDate(offer.verifiedAt)}</p><p><span className="font-bold text-ink">Expires:</span> {formatDate(offer.expiresAt)}</p><p><span className="font-bold text-ink">Created:</span> {formatDate(offer.createdAt)}</p><p><span className="font-bold text-ink">Reviewed:</span> {formatDate(offer.reviewedAt)}</p><p><a className="font-bold text-signal underline" href={offer.url} target="_blank" rel="noreferrer">Open job page</a></p></div>
-                    <div className="mt-5 grid gap-4 md:grid-cols-2"><div className="rounded-md bg-emerald-50 p-4"><p className="text-sm font-bold text-signal">Why it matches</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-ink/70">{offer.whyItMatches.map((item) => <li key={item}>{item}</li>)}</ul></div><div className="rounded-md bg-amber-50 p-4"><p className="text-sm font-bold text-amber-800">Risks</p><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-ink/70">{offer.risks.map((item) => <li key={item}>{item}</li>)}</ul></div></div>
-                  </article>
-                ))}
+                {items.map((offer) => renderOpportunityCard(offer))}
               </div>
             </section>
           );
-        }) : <p className="rounded-lg border border-line bg-white p-5 text-sm text-ink/70 shadow-soft">No cached opportunities yet.</p>}
+        }) : <p className="rounded-lg border border-line bg-white p-5 text-sm text-ink/70 shadow-soft">No cached opportunities for this active bucket filter.</p>}
       </div>
+      {legacyBucketGroups.length ? <details className="mt-10 rounded-lg border border-line bg-mist p-5 text-ink/70"><summary className="cursor-pointer text-sm font-bold uppercase text-ink/50">Legacy / inactive buckets ({legacyBucketGroups.reduce((count, group) => count + group.items.length, 0)} opportunities)</summary><div className="mt-5 grid gap-6">{legacyBucketGroups.map(({ bucketId, items }) => <section key={bucketId} className="grid gap-3"><div><h2 className="text-lg font-black text-ink/70">{bucketId}</h2><p className="text-xs font-semibold uppercase text-ink/40">Legacy or inactive bucket</p></div>{items.map((offer) => renderOpportunityCard(offer, true))}</section>)}</div></details> : null}
     </section>
   );
 }
