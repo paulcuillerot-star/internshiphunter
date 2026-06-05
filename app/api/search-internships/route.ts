@@ -2,7 +2,7 @@ import * as Sentry from "@sentry/nextjs";
 import { NextResponse } from "next/server";
 import { mockOffers } from "@/lib/mockData";
 import { matchSearchBucket } from "@/lib/searchBuckets";
-import { getBestCachedOpportunityForProfile, getWeeklyFreeUsageReportId, hasSupabaseConfig, saveLog, saveProfile, saveReport, saveWeeklyFreeUsage } from "@/lib/store";
+import { getBestCachedOpportunityForProfile, getReport, getWeeklyFreeUsageReportId, hasSupabaseConfig, saveLog, saveProfile, saveReport, saveWeeklyFreeUsage } from "@/lib/store";
 import type { CandidateProfile, InternshipSearchReport } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -60,6 +60,7 @@ export async function POST(request: Request) {
   }
 
   const reportId = makeId();
+  const accessToken = makeId();
 
   try {
     await saveProfile(profile);
@@ -67,8 +68,9 @@ export async function POST(request: Request) {
     if (hasSupabaseConfig()) {
       const existingReportId = await getWeeklyFreeUsageReportId(profile.email, currentWeekKey());
       if (existingReportId) {
+        const existingReport = await getReport(existingReportId);
         await saveLog({ id: makeId(), profileId: profile.id, reportId: existingReportId, status: "completed", querySummary: "Existing weekly free report returned for this email.", rawResponse: "Free usage limit matched an existing report. No OpenAI web_search was called.", createdAt: new Date().toISOString() });
-        return NextResponse.json({ reportId: existingReportId, reused: true });
+        return NextResponse.json({ reportId: existingReportId, accessToken: existingReport?.accessToken, reused: true });
       }
     }
 
@@ -76,14 +78,14 @@ export async function POST(request: Request) {
     const topOffer = await getBestCachedOpportunityForProfile(profile, matchedSearch);
     const freeOffers = topOffer ? [topOffer] : [];
     const premiumOffers = mockOffers.filter((offer) => offer.isPremium).slice(0, 5);
-    const report: InternshipSearchReport = { id: reportId, profileId: profile.id, status: "completed", isPaid: false, matchedSearch, freeOffers, premiumOffers, createdAt: now, updatedAt: new Date().toISOString() };
+    const report: InternshipSearchReport = { id: reportId, profileId: profile.id, status: "completed", accessToken, isPaid: false, matchedSearch, freeOffers, premiumOffers, createdAt: now, updatedAt: new Date().toISOString() };
     await saveReport(report);
     await saveWeeklyFreeUsage(profile.email, currentWeekKey(), reportId);
     await saveLog({ id: makeId(), profileId: profile.id, reportId, status: "completed", querySummary: `${matchedSearch.bucket.id}: ${matchedSearch.explanation}`, rawResponse: "Free flow reads approved Europe cached bucket opportunities or mock weekly examples. OpenAI web_search is not called during user submission.", createdAt: new Date().toISOString() });
-    return NextResponse.json({ reportId, offers: freeOffers, matchedSearch });
+    return NextResponse.json({ reportId, accessToken, offers: freeOffers, matchedSearch });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown search error";
-    const report: InternshipSearchReport = { id: reportId, profileId: profile.id, status: "failed", isPaid: false, freeOffers: [], premiumOffers: [], createdAt: now, updatedAt: new Date().toISOString(), errorMessage: message };
+    const report: InternshipSearchReport = { id: reportId, profileId: profile.id, status: "failed", accessToken, isPaid: false, freeOffers: [], premiumOffers: [], createdAt: now, updatedAt: new Date().toISOString(), errorMessage: message };
     await saveReport(report).catch(() => undefined);
     await saveLog({ id: makeId(), profileId: profile.id, reportId, status: "failed", querySummary: "Bucket matching or persistence failed before completion.", errorMessage: message, createdAt: new Date().toISOString() }).catch(() => undefined);
     Sentry.withScope((scope) => {
