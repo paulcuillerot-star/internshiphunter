@@ -1,6 +1,6 @@
 # Internship Hunter
 
-Internship Hunter helps business school students find relevant internship directions without falling into the job-board doom scroll. The free flow uses a guided form, matches a student to a broad internship search track, and shows 1 top cached opportunity example. Premium live personalized search is reserved for a future paid flow.
+Internship Hunter helps business school students find relevant internship directions without falling into the job-board doom scroll. The free flow uses a guided form, matches a student to a broad internship search track, and shows 1 top cached opportunity example. Premium live personalized search is reserved for a future paid flow that returns up to 3 curated internship leads when available.
 
 The product intentionally does not scrape LinkedIn and does not rely on manual offer entry as the main workflow.
 
@@ -200,6 +200,12 @@ Rejected offers and pending offers are ignored by the free flow. If no approved 
 ## Future OpenAI Live Search
 
 The server-side OpenAI architecture remains in the repo for the future paid flow. Live personalized search is not triggered by free users. A later premium flow can use OpenAI web search for exact roles based on CV, target cities, languages, companies already applied to and timing.
+
+Premium live search should return up to 3 curated internship leads when available. It should prefer 2 strong compatible leads over 3 weak or language-incompatible ones. If criteria are narrow, the system may broaden softly on date, duration, city or adjacent roles, but it must clearly label each result as `exact`, `close` or `broadened` and explain what was broadened.
+
+Language compatibility is a hard filter. The paid search must not include roles requiring languages the user does not speak just to fill the report. If a posting does not explicitly list languages, the system should infer likely requirements from posting language, country/city and company context. Unclear but likely compatible language fit should be shown as a risk note, not hidden.
+
+Hard filters for paid live search include incompatible language, expired deadline, already-applied companies, LinkedIn URLs, generic careers pages, search result pages, weak aggregators, clearly unpaid roles if the user wants to avoid unpaid work, and roles that are not real internships.
 
 ## Current Limitations
 
