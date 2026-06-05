@@ -235,7 +235,7 @@ export async function webInternshipSearch(profile: CandidateProfile, cvText: str
       scope.setContext("premium_live_search_empty", {
         desiredRoles: profile.desiredRoles,
         targetCountries: profile.targetCountries,
-        targetCities: profile.targetCities,
+        targetCitiesCount: profile.targetCities.length,
         languagesSpoken: profile.languagesSpoken,
         queryCount: queries.length
       });
