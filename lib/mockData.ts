@@ -1,4 +1,4 @@
-import type { CandidateProfile, InternshipSearchReport, ScoredInternshipOffer } from "./types";
+import type { CandidateProfile, InternshipSearchReport, PremiumMatchType, ScoredInternshipOffer } from "./types";
 import { matchSearchBucket } from "./searchBuckets";
 
 const now = new Date().toISOString();
@@ -23,7 +23,7 @@ export const mockCandidateProfile: CandidateProfile = {
   createdAt: now
 };
 
-function offer(id: string, title: string, company: string, city: string, country: string, premium: boolean, score: number): ScoredInternshipOffer {
+function offer(id: string, title: string, company: string, city: string, country: string, premium: boolean, score: number, matchType?: PremiumMatchType, broadenedReason = ""): ScoredInternshipOffer {
   return {
     id,
     title,
@@ -48,7 +48,10 @@ function offer(id: string, title: string, company: string, city: string, country
     applicationAngle: "Lead with sport business interest and practical event or partnership experience.",
     linkedinMessage: "Hi, I am applying for this internship and would value one tip on what your team looks for in junior profiles.",
     coverLetterHook: "I want to help turn sport and event partnerships into visible experiences for audiences and sponsors.",
-    isPremium: premium
+    isPremium: premium,
+    matchType: premium ? matchType ?? "close" : undefined,
+    broadenedReason: premium ? broadenedReason : undefined,
+    languageFit: premium ? "English-compatible posting; no incompatible local-language requirement found in the mock lead." : undefined
   };
 }
 
@@ -61,11 +64,9 @@ const topFreeOffer = bestOffer(matchedSearch.bucket.weeklyFreeOffers);
 
 export const mockOffers: ScoredInternshipOffer[] = [
   ...(topFreeOffer ? [topFreeOffer] : []),
-  offer("offer_3", "Commercial Partnerships Intern", "SailGP", "Sydney", "Australia", true, 87),
-  offer("offer_4", "Business Development Intern", "ONE Championship", "Singapore", "Singapore", true, 85),
-  offer("offer_5", "Brand Activation Intern", "Infront Sports & Media", "Zug", "Switzerland", true, 84),
-  offer("offer_6", "Marketing Intern, Major Events", "Sport Singapore", "Singapore", "Singapore", true, 82),
-  offer("offer_7", "Sponsorship and Events Intern", "Australian Grand Prix Corporation", "Melbourne", "Australia", true, 80)
+  offer("offer_3", "Commercial Partnerships Intern", "SailGP", "Sydney", "Australia", true, 87, "exact"),
+  offer("offer_4", "Business Development Intern", "ONE Championship", "Singapore", "Singapore", true, 85, "close", "Market broadened from Switzerland-focused sport business to Singapore because it is a high-signal English-compatible sports organization."),
+  offer("offer_5", "Brand Activation Intern", "Infront Sports & Media", "Zug", "Switzerland", true, 84, "broadened", "Role broadened from partnerships to brand activation within the same sports business career family.")
 ];
 
 export const mockReport: InternshipSearchReport = {
@@ -75,7 +76,7 @@ export const mockReport: InternshipSearchReport = {
   isPaid: false,
   matchedSearch,
   freeOffers: topFreeOffer ? [topFreeOffer] : [],
-  premiumOffers: mockOffers.filter((item) => item.isPremium),
+  premiumOffers: mockOffers.filter((item) => item.isPremium).slice(0, 3),
   createdAt: now,
   updatedAt: now
 };
