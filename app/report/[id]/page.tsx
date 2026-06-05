@@ -14,6 +14,7 @@ export default async function ReportPage({ params, searchParams }: { params: { i
   if (!report) notFound();
   const profile = await getProfile(report.profileId);
   const visibleFreeOffers = report.freeOffers.slice(0, 1);
+  const lockedPremiumOffers = report.premiumOffers.slice(0, 3);
   const tokenParam = report.accessToken ? `?token=${encodeURIComponent(report.accessToken)}` : "";
 
   return (
@@ -37,7 +38,7 @@ export default async function ReportPage({ params, searchParams }: { params: { i
 
       <div className="mt-10 grid gap-5 lg:grid-cols-[1fr_0.75fr]">
         <div className="grid gap-5">
-          {report.premiumOffers.map((offer, index) => <LockedOfferCard key={offer.id} index={index + 1} />)}
+          {lockedPremiumOffers.map((offer, index) => <LockedOfferCard key={offer.id} index={index + 1} />)}
         </div>
         <PricingCTA reportId={report.id} accessToken={report.accessToken} />
       </div>
