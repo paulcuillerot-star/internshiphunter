@@ -21,6 +21,11 @@ function premiumErrorType(errorMessage?: string) {
   return "technical_error";
 }
 
+function canRetryPremiumSearch(report: InternshipSearchReport) {
+  const errorType = premiumErrorType(report.premiumSearchError);
+  return !retryWasUsed(report.premiumSearchError) && (errorType === "zero_results" || errorType === "recoverable_search_error");
+}
+
 function sentryContext(report: InternshipSearchReport, premiumInputs?: PremiumSearchInputs, retry = false) {
   return {
     reportId: report.id,
@@ -106,20 +111,24 @@ export async function POST(request: Request) {
   }
 
   if (status === "failed") {
+    const retryAvailable = canRetryPremiumSearch(report);
+
     if (!retryRequested) {
-      capturePremiumSearchMessage("Premium search failed state returned with retry available", report, premiumInputs, "warning");
+      capturePremiumSearchMessage("Premium search failed state returned", report, premiumInputs, "warning");
       return NextResponse.json(
         {
-          error: "Premium search did not deliver strong leads. You can retry once with broader criteria at no extra cost.",
-          retryAvailable: !retryWasUsed(report.premiumSearchError)
+          error: retryAvailable
+            ? "Premium search did not deliver strong leads. You can retry once with broader criteria at no extra cost."
+            : "Premium search failed. Please contact support with this report id.",
+          retryAvailable
         },
         { status: 409 }
       );
     }
 
-    if (report.premiumOffers.length > 0 || retryWasUsed(report.premiumSearchError)) {
-      capturePremiumSearchMessage("Premium search retry blocked because retry was already used", report, premiumInputs, "warning", true);
-      return NextResponse.json({ error: "Premium search retry was already used. Please contact support with this report id." }, { status: 409 });
+    if (report.premiumOffers.length > 0 || !retryAvailable) {
+      capturePremiumSearchMessage("Premium search retry blocked", report, premiumInputs, "warning", true);
+      return NextResponse.json({ error: "Premium search retry is not available. Please contact support with this report id." }, { status: 409 });
     }
   }
 
@@ -150,7 +159,7 @@ export async function POST(request: Request) {
         error: retryRequested
           ? "Premium search still could not find strong leads after retry. Please contact support with this report id."
           : "Premium search could not find strong leads with these criteria. You can retry once with broader criteria at no extra cost.",
-        retryAvailable: !retryRequested
+        retryAvailable: !retryRequested && canRetryPremiumSearch({ ...report, premiumSearchError: storedMessage })
       },
       { status: 500 }
     );
