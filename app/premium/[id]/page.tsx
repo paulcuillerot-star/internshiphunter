@@ -88,6 +88,23 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
     );
   }
 
+  if (premiumStatus === "pending_payment") {
+    return (
+      <section className="section">
+        <div className="max-w-2xl rounded-lg border border-emerald-100 bg-white p-8 shadow-soft">
+          <p className="text-sm font-semibold uppercase text-signal">Payment confirmation</p>
+          <h1 className="mt-3 text-4xl font-bold text-ink">Waiting for payment confirmation</h1>
+          <p className="mt-4 text-ink/70">
+            Your premium criteria are saved. We will start the live search only after Stripe confirms the payment securely.
+          </p>
+          <a href={refreshHref(report.id, report.accessToken)} className="mt-6 inline-flex button-primary">
+            Refresh payment status
+          </a>
+        </div>
+      </section>
+    );
+  }
+
   if (premiumStatus === "completed" && completedOffers.length > 0) {
     return (
       <section className="section">
@@ -130,15 +147,45 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
     );
   }
 
+  if (premiumStatus === "running") {
+    return (
+      <section className="section">
+        <div className="max-w-2xl">
+          <p className="text-sm font-semibold uppercase text-signal">Premium unlocked</p>
+          <h1 className="mt-3 text-4xl font-bold text-ink">Your live search is running</h1>
+          <p className="mt-4 text-ink/70">
+            We are checking the status every few seconds. Refreshing the browser will not start another search.
+          </p>
+          <PremiumSearchRunner reportId={report.id} accessToken={report.accessToken} pollOnly autoStart={false} />
+        </div>
+      </section>
+    );
+  }
+
+  if (premiumStatus === "ready_to_run" || premiumStatus === "not_started") {
+    return (
+      <section className="section">
+        <div className="max-w-2xl">
+          <p className="text-sm font-semibold uppercase text-signal">Premium unlocked</p>
+          <h1 className="mt-3 text-4xl font-bold text-ink">Your live search is ready to run</h1>
+          <p className="mt-4 text-ink/70">
+            We will use your saved premium criteria to search once for up to 3 curated leads. Refreshing the page will not start duplicate searches after the run begins.
+          </p>
+          <PremiumSearchRunner reportId={report.id} accessToken={report.accessToken} />
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="section">
-      <div className="max-w-2xl">
-        <p className="text-sm font-semibold uppercase text-signal">Premium unlocked</p>
-        <h1 className="mt-3 text-4xl font-bold text-ink">Your live search is ready to run</h1>
-        <p className="mt-4 text-ink/70">
-          We will use your saved premium criteria to search once for up to 3 curated leads. Refreshing the page will not start duplicate searches.
-        </p>
-        <PremiumSearchRunner reportId={report.id} accessToken={report.accessToken} />
+      <div className="max-w-2xl rounded-lg border border-emerald-100 bg-white p-8 shadow-soft">
+        <p className="text-sm font-semibold uppercase text-signal">Premium search</p>
+        <h1 className="mt-3 text-4xl font-bold text-ink">Checking your report status</h1>
+        <p className="mt-4 text-ink/70">Refresh this page in a moment if your premium report does not update automatically.</p>
+        <a href={refreshHref(report.id, report.accessToken)} className="mt-6 inline-flex button-secondary">
+          Refresh status
+        </a>
       </div>
     </section>
   );
