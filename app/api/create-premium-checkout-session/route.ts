@@ -227,7 +227,7 @@ export async function POST(request: Request) {
 
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
     const tokenParam = report.accessToken ? `token=${encodeURIComponent(report.accessToken)}` : "";
-    const paidQuery = [tokenParam, "paid=true"].filter(Boolean).join("&");
+    const paidQuery = [tokenParam, "paid=true", "session_id={CHECKOUT_SESSION_ID}"].filter(Boolean).join("&");
     const cancelQuery = [tokenParam, "payment=cancelled"].filter(Boolean).join("&");
     const stripe = getStripeClient();
 
