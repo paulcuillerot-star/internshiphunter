@@ -1,40 +1,42 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { OfferCard } from "@/components/OfferCard";
+import { PremiumSearchForm } from "@/components/PremiumSearchForm";
+import { PremiumSearchRunner } from "@/components/PremiumSearchRunner";
 import { getReportIfAuthorized } from "@/lib/store";
 import { getStripeClient } from "@/lib/stripe";
-import { CheckoutButton } from "./CheckoutButton";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export default async function PremiumPage({ params, searchParams }: { params: { id: string }; searchParams: { mockPaid?: string; paid?: string; token?: string } }) {
+type PremiumSearchParams = {
+  mockPaid?: string;
+  paid?: string;
+  payment?: string;
+  refresh?: string;
+  token?: string;
+};
+
+function refreshHref(reportId: string, token?: string) {
+  const params = new URLSearchParams();
+  if (token) params.set("token", token);
+  params.set("paid", "true");
+  params.set("refresh", String(Date.now()));
+  return `/premium/${reportId}?${params.toString()}`;
+}
+
+export default async function PremiumPage({ params, searchParams }: { params: { id: string }; searchParams: PremiumSearchParams }) {
   const report = await getReportIfAuthorized(params.id, searchParams.token);
   if (!report) notFound();
 
-  const tokenParam = report.accessToken ? `token=${encodeURIComponent(report.accessToken)}` : "";
-  const paidTokenQuery = [tokenParam, "paid=true"].filter(Boolean).join("&");
-  const paidHref = `/premium/${report.id}${paidTokenQuery ? `?${paidTokenQuery}` : ""}`;
   const stripeConfigured = Boolean(getStripeClient());
   const allowMockUnlock = searchParams.mockPaid === "true" && (!stripeConfigured || process.env.NODE_ENV !== "production");
   const unlocked = report.isPaid || allowMockUnlock;
   const paymentReturning = searchParams.paid === "true";
-  const premiumOffers = report.premiumOffers.slice(0, 3);
+  const paymentCancelled = searchParams.payment === "cancelled";
+  const premiumStatus = report.premiumSearchStatus ?? "not_started";
+  const completedOffers = premiumStatus === "completed" ? report.premiumOffers.slice(0, 3) : [];
 
-  if (unlocked) {
-    return (
-      <section className="section">
-        <p className="text-sm font-semibold uppercase text-signal">Premium unlocked</p>
-        <h1 className="mt-3 text-4xl font-bold text-ink">Your curated premium internship leads</h1>
-        <p className="mt-3 max-w-2xl text-ink/70">
-          3 curated internship leads when available. If your criteria are narrow, close alternatives may be included and clearly labelled.
-        </p>
-        <div className="mt-8 grid gap-5">{premiumOffers.map((offer) => <OfferCard key={offer.id} offer={offer} reportId={report.id} premium />)}</div>
-      </section>
-    );
-  }
-
-  if (paymentReturning) {
+  if (paymentReturning && !unlocked) {
     return (
       <section className="section">
         <div className="max-w-2xl rounded-lg border border-emerald-100 bg-white p-8 shadow-soft">
@@ -43,9 +45,52 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
           <p className="mt-4 text-ink/70">
             Stripe sent you back successfully. We are waiting for the secure payment confirmation to finish updating your report.
           </p>
-          <Link href={paidHref} className="mt-6 inline-flex button-primary">
+          <a href={refreshHref(report.id, report.accessToken)} className="mt-6 inline-flex button-primary">
             Refresh unlock status
-          </Link>
+          </a>
+        </div>
+      </section>
+    );
+  }
+
+  if (!report.premiumInputs || !unlocked) {
+    return (
+      <section className="section">
+        <div className="max-w-3xl">
+          <p className="text-sm font-semibold uppercase text-signal">Premium report</p>
+          <h1 className="mt-3 text-4xl font-bold text-ink">Personalize your live search before payment</h1>
+          <p className="mt-4 max-w-2xl text-ink/70">
+            Unlock 3 curated internship leads for €5.90, matched to your profile, cities, languages and timing. If your criteria are narrow, we may include close alternatives and clearly explain what was broadened.
+          </p>
+          <PremiumSearchForm reportId={report.id} accessToken={report.accessToken} initialInputs={report.premiumInputs} paymentCancelled={paymentCancelled} />
+        </div>
+      </section>
+    );
+  }
+
+  if (premiumStatus === "completed" && completedOffers.length > 0) {
+    return (
+      <section className="section">
+        <p className="text-sm font-semibold uppercase text-signal">Premium unlocked</p>
+        <h1 className="mt-3 text-4xl font-bold text-ink">Your curated premium internship leads</h1>
+        <p className="mt-3 max-w-2xl text-ink/70">
+          3 curated internship leads when available. If your criteria are narrow, close alternatives may be included and clearly labelled.
+        </p>
+        <div className="mt-8 grid gap-5">{completedOffers.map((offer) => <OfferCard key={offer.id} offer={offer} reportId={report.id} premium />)}</div>
+      </section>
+    );
+  }
+
+  if (premiumStatus === "failed") {
+    return (
+      <section className="section">
+        <div className="max-w-2xl rounded-lg border border-red-100 bg-white p-8 shadow-soft">
+          <p className="text-sm font-semibold uppercase text-red-600">Premium search failed</p>
+          <h1 className="mt-3 text-4xl font-bold text-ink">We could not generate your premium report</h1>
+          <p className="mt-4 text-ink/70">
+            Your payment is recorded, but the live search could not complete. Please contact support with this report id so we can review it manually.
+          </p>
+          <p className="mt-4 rounded-md bg-red-50 p-3 text-sm text-red-700">Report id: {report.id}</p>
         </div>
       </section>
     );
@@ -53,11 +98,13 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
 
   return (
     <section className="section">
-      <div className="max-w-2xl rounded-lg border border-line bg-white p-8 shadow-soft">
-        <p className="text-sm font-semibold uppercase text-signal">Premium report</p>
-        <h1 className="mt-3 text-4xl font-bold text-ink">Unlock personalized live search</h1>
-        <p className="mt-4 text-ink/70">Premium will run live AI research later for up to 3 curated internship leads, with CV-based matching, exact target cities, language filtering, timing, exclusions and labelled close alternatives when needed.</p>
-        <CheckoutButton reportId={report.id} accessToken={report.accessToken} />
+      <div className="max-w-2xl">
+        <p className="text-sm font-semibold uppercase text-signal">Premium unlocked</p>
+        <h1 className="mt-3 text-4xl font-bold text-ink">Your live search is ready to run</h1>
+        <p className="mt-4 text-ink/70">
+          We will use your saved premium criteria to search once for up to 3 curated leads. Refreshing the page will not start duplicate searches.
+        </p>
+        <PremiumSearchRunner reportId={report.id} accessToken={report.accessToken} />
       </div>
     </section>
   );

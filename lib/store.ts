@@ -4,7 +4,7 @@ import path from "node:path";
 import { mockCandidateProfile, mockReport } from "./mockData";
 import { matchSearchBucket, searchBuckets } from "./searchBuckets";
 import { getSupabaseServerClient, hasSupabaseConfig } from "./supabase/server";
-import type { AdminSearchLog, CachedBucketOpportunity, CacheReviewStatus, CandidateProfile, InternshipSearchReport, MatchedSearchBucket, OfferFeedback, ScoredInternshipOffer, SearchRegion } from "./types";
+import type { AdminSearchLog, CachedBucketOpportunity, CacheReviewStatus, CandidateProfile, InternshipSearchReport, MatchedSearchBucket, OfferFeedback, PremiumSearchInputs, PremiumSearchStatus, ScoredInternshipOffer, SearchRegion } from "./types";
 
 const profiles = new Map<string, CandidateProfile>([[mockCandidateProfile.id, mockCandidateProfile]]);
 const reports = new Map<string, InternshipSearchReport>([[mockReport.id, mockReport]]);
@@ -17,7 +17,7 @@ let hydrated = false;
 function canUseFileFallback() { return process.env.NODE_ENV !== "production"; }
 function normalizeEmail(email: string) { return email.trim().toLowerCase(); }
 function bestOffer(offers: ScoredInternshipOffer[]) { return [...offers].sort((a, b) => (b.matchScore + b.qualityScore) - (a.matchScore + a.qualityScore))[0]; }
-function createMockReportForId(id: string): InternshipSearchReport { const now = new Date().toISOString(); const matchedSearch = matchSearchBucket(mockCandidateProfile); const topOffer = bestOffer(matchedSearch.bucket.weeklyFreeOffers); return { ...mockReport, id, profileId: mockCandidateProfile.id, matchedSearch, freeOffers: topOffer ? [topOffer] : [], premiumOffers: mockReport.premiumOffers.map((offer) => ({ ...offer, isPremium: true })), createdAt: now, updatedAt: now }; }
+function createMockReportForId(id: string): InternshipSearchReport { const now = new Date().toISOString(); const matchedSearch = matchSearchBucket(mockCandidateProfile); const topOffer = bestOffer(matchedSearch.bucket.weeklyFreeOffers); return { ...mockReport, id, profileId: mockCandidateProfile.id, matchedSearch, freeOffers: topOffer ? [topOffer] : [], premiumOffers: mockReport.premiumOffers.map((offer) => ({ ...offer, isPremium: true })), premiumSearchStatus: "not_started", createdAt: now, updatedAt: now }; }
 function hydrate() { if (hydrated || !canUseFileFallback() || !fs.existsSync(storeFile)) { hydrated = true; return; } try { const snapshot = JSON.parse(fs.readFileSync(storeFile, "utf8")) as Partial<StoreSnapshot>; snapshot.profiles?.forEach((item) => profiles.set(item.id, item)); snapshot.reports?.forEach((item) => reports.set(item.id, item)); snapshot.feedback?.forEach((item) => feedback.set(item.id, item)); snapshot.logs?.forEach((item) => logs.set(item.id, item)); } catch { } finally { hydrated = true; } }
 function persist() { if (!canUseFileFallback()) return; fs.writeFileSync(storeFile, JSON.stringify({ profiles: Array.from(profiles.values()), reports: Array.from(reports.values()), feedback: Array.from(feedback.values()), logs: Array.from(logs.values()) }, null, 2)); }
 function missingAccessTokenColumn(error: { code?: string; message?: string }) { return error.code === "PGRST204" || /access_token/i.test(error.message ?? ""); }
@@ -64,6 +64,11 @@ function mapReportRow(row: Record<string, unknown>): InternshipSearchReport {
     matchedSearch,
     freeOffers: (row.free_offers as ScoredInternshipOffer[] | null) ?? [],
     premiumOffers: (row.premium_offers as ScoredInternshipOffer[] | null) ?? [],
+    premiumInputs: (row.premium_inputs as PremiumSearchInputs | null) ?? undefined,
+    premiumSearchStatus: (row.premium_search_status as PremiumSearchStatus | null) ?? "not_started",
+    premiumSearchError: row.premium_search_error ? String(row.premium_search_error) : undefined,
+    premiumSearchStartedAt: row.premium_search_started_at ? String(row.premium_search_started_at) : undefined,
+    premiumSearchCompletedAt: row.premium_search_completed_at ? String(row.premium_search_completed_at) : undefined,
     createdAt: String(row.created_at ?? new Date().toISOString()),
     updatedAt: String(row.updated_at ?? new Date().toISOString()),
     errorMessage: row.error_message ? String(row.error_message) : undefined
@@ -349,6 +354,55 @@ export async function listLogs() {
     return (data ?? []).map((item) => mapLogRow(item));
   }
   return Array.from(logs.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function updateReportPremiumInputs(reportId: string, premiumInputs: PremiumSearchInputs) {
+  hydrate();
+  const now = new Date().toISOString();
+  const supabase = getSupabaseServerClient();
+  if (supabase) {
+    const { error } = await supabase.from("search_reports").update({ premium_inputs: premiumInputs, premium_search_status: "pending_payment", premium_search_error: null, updated_at: now }).eq("id", reportId);
+    if (error) throw error;
+    return;
+  }
+  const report = reports.get(reportId) ?? createMockReportForId(reportId);
+  reports.set(reportId, { ...report, premiumInputs, premiumSearchStatus: "pending_payment", premiumSearchError: undefined, updatedAt: now });
+  persist();
+}
+
+export async function updateReportPremiumSearchStatus(reportId: string, status: PremiumSearchStatus, errorMessage?: string) {
+  hydrate();
+  const now = new Date().toISOString();
+  const statusPatch = {
+    premium_search_status: status,
+    premium_search_error: errorMessage ?? null,
+    premium_search_started_at: status === "running" ? now : undefined,
+    premium_search_completed_at: status === "completed" || status === "failed" ? now : undefined,
+    updated_at: now
+  };
+  const supabase = getSupabaseServerClient();
+  if (supabase) {
+    const { error } = await supabase.from("search_reports").update(statusPatch).eq("id", reportId);
+    if (error) throw error;
+    return;
+  }
+  const report = reports.get(reportId) ?? createMockReportForId(reportId);
+  reports.set(reportId, { ...report, premiumSearchStatus: status, premiumSearchError: errorMessage, premiumSearchStartedAt: status === "running" ? now : report.premiumSearchStartedAt, premiumSearchCompletedAt: status === "completed" || status === "failed" ? now : report.premiumSearchCompletedAt, updatedAt: now });
+  persist();
+}
+
+export async function updateReportPremiumOffers(reportId: string, offers: ScoredInternshipOffer[]) {
+  hydrate();
+  const now = new Date().toISOString();
+  const supabase = getSupabaseServerClient();
+  if (supabase) {
+    const { error } = await supabase.from("search_reports").update({ premium_offers: offers, premium_search_status: "completed", premium_search_error: null, premium_search_completed_at: now, updated_at: now }).eq("id", reportId);
+    if (error) throw error;
+    return;
+  }
+  const report = reports.get(reportId) ?? createMockReportForId(reportId);
+  reports.set(reportId, { ...report, premiumOffers: offers, premiumSearchStatus: "completed", premiumSearchError: undefined, premiumSearchCompletedAt: now, updatedAt: now });
+  persist();
 }
 
 export async function markReportPaid(reportId: string) {

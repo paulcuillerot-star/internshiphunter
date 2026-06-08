@@ -13,14 +13,14 @@ const heroChips = [
 const steps = [
   ["1", "Share your search", "Upload your CV and tell us the countries and roles you want. Only the essentials are required."],
   ["2", "Get your internship track", "We match you to a clear business-school internship track and show 2 weekly cached examples."],
-  ["3", "Unlock live personalized search", "When you want exact opportunities, premium will run a live personalized search for up to 3 curated internship leads."]
+  ["3", "Unlock live personalized search", "When you want a deeper search, premium unlocks 3 curated internship leads with exact, close or broadened matches clearly labelled."]
 ];
 
 const faqs = [
   ["Does the free flow run live AI search?", "No. The free demo uses rule-based matching and cached weekly examples to keep the experience fast and cost-controlled."],
   ["Do you scrape LinkedIn?", "No. LinkedIn scraping is intentionally not supported."],
   ["Can it work without API keys?", "Yes. The MVP uses realistic mock data until OpenAI, Supabase and Stripe are configured."],
-  ["What happens after unlock?", "Premium live search will later use exact countries, cities, CV context, languages and companies already applied to, then return up to 3 curated leads when available."]
+  ["What happens after unlock?", "Premium uses your saved criteria to search for up to 3 curated leads. If your criteria are narrow, close alternatives may be included and clearly labelled."]
 ];
 
 export default function HomePage() {
@@ -36,7 +36,7 @@ export default function HomePage() {
               Find internships that actually fit your profile.
             </h1>
             <p className="mt-5 max-w-2xl text-lg leading-8 text-ink/70">
-              Share what you are looking for. We match you to an internship search track, show 2 weekly examples for free, and later unlock live personalized search for exact opportunities.
+              Share what you are looking for. We match you to an internship search track, show 2 weekly examples for free, and unlock 3 curated internship leads when you want a deeper personalized search.
             </p>
             <div className="mt-6 flex flex-wrap gap-2">
               {heroChips.map((chip) => (
@@ -96,7 +96,7 @@ export default function HomePage() {
       <section className="section pt-4">
         <div className="rounded-lg bg-gradient-to-br from-emerald-50 to-mist p-8 text-center ring-1 ring-emerald-100">
           <h2 className="text-3xl font-bold text-ink">Find internships worth applying to.</h2>
-          <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-ink/70">Start with the free track. Upgrade later only when you want a personalized live search.</p>
+          <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-ink/70">Start with the free track. Upgrade later when you want 3 curated leads from a personalized live search.</p>
           <Link href="/apply" className="mt-6 inline-flex items-center justify-center rounded-md bg-signal px-5 py-3 text-sm font-bold text-white shadow-soft transition hover:bg-emerald-700">Start free</Link>
         </div>
       </section>

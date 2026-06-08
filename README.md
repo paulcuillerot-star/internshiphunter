@@ -1,6 +1,6 @@
 # Internship Hunter
 
-Internship Hunter helps business school students find relevant internship directions without falling into the job-board doom scroll. The free flow uses a guided form, matches a student to a broad internship search track, and shows 1 top cached opportunity example. Premium live personalized search is reserved for a future paid flow that returns up to 3 curated internship leads when available.
+Internship Hunter helps business school students find relevant internship directions without falling into the job-board doom scroll. The free flow uses a guided form, matches a student to a broad internship search track, and shows 1 top cached opportunity example. The premium flow now collects search criteria before payment, then runs one paid live search after Stripe confirms the report is unlocked.
 
 The product intentionally does not scrape LinkedIn and does not rely on manual offer entry as the main workflow.
 
@@ -10,7 +10,7 @@ The product intentionally does not scrape LinkedIn and does not rely on manual o
 - TypeScript
 - Tailwind CSS
 - Supabase persistence
-- OpenAI Responses API for protected admin cache refresh
+- OpenAI Responses API for protected admin cache refresh and paid premium search
 - Stripe checkout architecture
 - Sentry monitoring
 - Vercel-ready deployment
@@ -27,7 +27,7 @@ Open `http://localhost:3000`.
 
 ## Environment Variables
 
-See `.env.example` for all supported variables. For Supabase persistence, cache refresh and monitoring, configure:
+See `.env.example` for all supported variables. For Supabase persistence, cache refresh, Stripe, OpenAI and monitoring, configure:
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=
@@ -35,6 +35,9 @@ SUPABASE_SERVICE_ROLE_KEY=
 OPENAI_API_KEY=
 OPENAI_MODEL=
 CACHE_REFRESH_SECRET=
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
 SENTRY_DSN=
 NEXT_PUBLIC_SENTRY_DSN=
 SENTRY_ENVIRONMENT=
@@ -44,11 +47,11 @@ SENTRY_PROJECT=
 SENTRY_AUTH_TOKEN=
 ```
 
-`SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY`, `CACHE_REFRESH_SECRET`, and `SENTRY_AUTH_TOKEN` are server-side only. Do not expose them in client components or browser code. `NEXT_PUBLIC_SENTRY_DSN` is safe to expose because Sentry browser events need a public DSN.
+`SUPABASE_SERVICE_ROLE_KEY`, `OPENAI_API_KEY`, `CACHE_REFRESH_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and `SENTRY_AUTH_TOKEN` are server-side only. Do not expose them in client components or browser code. `NEXT_PUBLIC_SENTRY_DSN` is safe to expose because Sentry browser events need a public DSN.
 
 ## Sentry Setup
 
-Sentry is configured through `@sentry/nextjs` for client, server and edge runtime monitoring. The admin cache refresh page and protected refresh API capture bucket-level refresh errors with Sentry context.
+Sentry is configured through `@sentry/nextjs` for client, server and edge runtime monitoring. The admin cache refresh page, protected refresh API, premium checkout preparation and premium live search capture safe diagnostic context.
 
 To enable it:
 
@@ -82,17 +85,23 @@ create index if not exists cached_bucket_opportunities_review_status_idx
 on cached_bucket_opportunities(review_status);
 ```
 
-If `search_reports` already exists from an earlier version, run this manual migration before relying on protected report URLs:
+If `search_reports` already exists from an earlier version, run this manual migration before relying on protected report URLs and the paid premium search flow:
 
 ```sql
 alter table search_reports
-add column if not exists access_token text;
+add column if not exists access_token text,
+add column if not exists premium_inputs jsonb,
+add column if not exists premium_search_status text default 'not_started',
+add column if not exists premium_search_error text,
+add column if not exists premium_search_started_at timestamptz,
+add column if not exists premium_search_completed_at timestamptz;
 ```
 
 When Supabase is configured, Internship Hunter persists:
 
 - submitted user profiles
 - generated free search reports
+- premium inputs and premium search status
 - search logs
 - offer feedback
 - weekly free usage records
@@ -128,11 +137,48 @@ The active bucket system is 8 tracks x 2 markets, for 16 total cache buckets. Th
 
 If Supabase has approved cached opportunities for that bucket, the app locally scores the approved cache against the selected market, city, track, languages, companies already applied to and things to avoid. Pending and rejected cache items are ignored. If no approved cache item is available, expired, or readable, the app falls back to the existing mock weekly example.
 
-The CV upload is still required and stored for the later paid flow, but it is not parsed and does not influence the free result yet. The free result is based on the selected track, target market, languages and profile details.
+The CV is not parsed and does not influence the free result yet. The free result is based on the selected track and broad market.
+
+## Premium Flow
+
+Premium starts from an existing free report. The user clicks the premium CTA and lands on `/premium/{reportId}?token={accessToken}`.
+
+Before payment, the user fills the premium search criteria:
+
+- target countries
+- target cities
+- languages spoken
+- internship start date
+- internship duration
+- companies already applied to
+- things to avoid
+- profile / CV summary
+- ideal internship description / dream role
+
+The premium form does not ask for email again; the email is already linked to the original free report/profile. Submitting the form saves `premium_inputs`, sets the report to `pending_payment`, then opens Stripe Checkout. The access token is kept in success/cancel URLs but is never stored in Stripe metadata.
+
+After Stripe payment, the user returns to `/premium/{reportId}?token={accessToken}&paid=true`. The page waits for the webhook to mark `is_paid = true`. Once the report is paid, a client runner calls `/api/premium-search` once.
+
+The premium search route is guarded and idempotent:
+
+- verifies the report token
+- verifies the report is paid
+- requires saved premium inputs
+- returns existing completed offers without calling OpenAI again
+- does not start a duplicate search when status is `running`
+- sets status to `running` before calling OpenAI
+- saves up to 3 premium offers and sets status to `completed`
+- sets status to `failed` and captures Sentry context on failure
+
+Premium live search returns up to 3 curated internship leads when available. It should prefer 2 strong compatible leads over 3 weak or language-incompatible ones. If criteria are narrow, the system may broaden softly on date, duration, city or adjacent roles, but it must clearly label each result as `exact`, `close` or `broadened` and explain what was broadened.
+
+Language compatibility is a hard filter. The paid search must not include roles requiring languages the user does not speak just to fill the report. If a posting does not explicitly list languages, the system should infer likely requirements from posting language, country/city and company context. Unclear but likely compatible language fit should be shown as a risk note, not hidden.
+
+Hard filters for paid live search include incompatible language, expired deadline, already-applied companies, LinkedIn URLs, generic careers pages, search result pages, weak aggregators, clearly unpaid roles if the user wants to avoid unpaid work, and roles that are not real internships.
 
 ## Protected OpenAI Cache Refresh
 
-OpenAI is only used by the protected admin endpoint. Cache refresh is fully manual: an admin triggers it, reviews the saved opportunities in Supabase or the admin cache page, and reruns it if the results are not good enough.
+OpenAI cache refresh is only used by the protected admin endpoint. Cache refresh is fully manual: an admin triggers it, reviews the saved opportunities in Supabase or the admin cache page, and reruns it if the results are not good enough.
 
 The endpoint is:
 
@@ -175,7 +221,7 @@ The refresh endpoint:
 - treats missing compensation, unclear deadlines and close-but-open deadlines as visible risk notes instead of automatic rejection
 - reports refresh exceptions to Sentry when Sentry is configured
 
-No automatic Vercel Cron is configured in this PR. A good manual review cadence is every 1-2 weeks, but refresh should happen only when the admin chooses to run it.
+No automatic Vercel Cron is configured. A good manual review cadence is every 1-2 weeks, but refresh should happen only when the admin chooses to run it.
 
 ## Admin Cache Review
 
@@ -197,22 +243,12 @@ Manual review workflow:
 
 Rejected offers and pending offers are ignored by the free flow. If no approved cached offer exists for a bucket, the app falls back to the existing mock weekly example.
 
-## Future OpenAI Live Search
-
-The server-side OpenAI architecture remains in the repo for the future paid flow. Live personalized search is not triggered by free users. A later premium flow can use OpenAI web search for exact roles based on CV, target cities, languages, companies already applied to and timing.
-
-Premium live search should return up to 3 curated internship leads when available. It should prefer 2 strong compatible leads over 3 weak or language-incompatible ones. If criteria are narrow, the system may broaden softly on date, duration, city or adjacent roles, but it must clearly label each result as `exact`, `close` or `broadened` and explain what was broadened.
-
-Language compatibility is a hard filter. The paid search must not include roles requiring languages the user does not speak just to fill the report. If a posting does not explicitly list languages, the system should infer likely requirements from posting language, country/city and company context. Unclear but likely compatible language fit should be shown as a risk note, not hidden.
-
-Hard filters for paid live search include incompatible language, expired deadline, already-applied companies, LinkedIn URLs, generic careers pages, search result pages, weak aggregators, clearly unpaid roles if the user wants to avoid unpaid work, and roles that are not real internships.
-
 ## Current Limitations
 
 - Real persistence requires Supabase setup.
 - Free usage tracking only works when Supabase env vars are configured.
-- OpenAI is available only for protected manual admin cache refresh, not normal free submissions.
-- Premium live search is not implemented yet.
+- OpenAI is not called by normal free submissions.
+- Paid premium search requires Stripe, Supabase and `OPENAI_API_KEY` to be configured.
 - CV text extraction is basic/mock in this version.
 - Cache quality depends on refresh prompts, available web results and admin approval.
 - LinkedIn scraping is intentionally not supported.
@@ -220,6 +256,6 @@ Hard filters for paid live search include incompatible language, expired deadlin
 ## Next Steps
 
 - Add real PDF text extraction and CV storage.
-- Add a real paid live search flow after premium unlock.
+- Improve paid premium search review and support tooling.
 - Improve admin monitoring with cache refresh history and filters.
 - Add tests for Supabase persistence, cache selection and weekly free usage limits.
