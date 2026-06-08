@@ -1,7 +1,7 @@
 import * as Sentry from "@sentry/nextjs";
 import { NextResponse } from "next/server";
 import { mockOffers } from "@/lib/mockData";
-import { matchSearchBucket } from "@/lib/searchBuckets";
+import { getActiveFreeBucketById, matchSearchBucketFromBucketId } from "@/lib/searchBuckets";
 import { getBestCachedOpportunityForProfile, getReport, getWeeklyFreeUsageReportId, hasSupabaseConfig, saveLog, saveProfile, saveReport, saveWeeklyFreeUsage } from "@/lib/store";
 import type { CandidateProfile, InternshipSearchReport } from "@/lib/types";
 
@@ -12,6 +12,9 @@ function splitList(value: FormDataEntryValue | null) { return String(value ?? ""
 function listField(formData: FormData, name: string) {
   const values = formData.getAll(name).flatMap((value) => splitList(value));
   return Array.from(new Set(values));
+}
+function exactFieldValues(formData: FormData, name: string) {
+  return formData.getAll(name).map((value) => String(value).trim()).filter(Boolean);
 }
 function makeId() { return crypto.randomUUID(); }
 function normalizeEmail(email: string) { return email.trim().toLowerCase(); }
@@ -27,15 +30,20 @@ function currentWeekKey() {
   return `${now.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 
-function captureValidationFailure(reason: string, profile: CandidateProfile) {
+function captureValidationFailure(reason: string, profile: CandidateProfile, details: { selectedTrackId?: string; bucketId?: string; selectedTrackCount: number; desiredRolesCount: number }) {
   Sentry.withScope((scope) => {
     scope.setTag("feature", "free-match");
     scope.setTag("route", "api/search-internships");
     scope.setTag("reason", reason);
     scope.setTag("emailDomain", emailDomain(profile.email));
+    if (details.selectedTrackId) scope.setTag("selectedTrackId", details.selectedTrackId);
+    if (details.bucketId) scope.setTag("bucketId", details.bucketId);
     scope.setContext("free_match_validation", {
       reason,
-      desiredRolesCount: profile.desiredRoles.length,
+      selectedTrackId: details.selectedTrackId,
+      bucketId: details.bucketId,
+      selectedTrackCount: details.selectedTrackCount,
+      desiredRolesCount: details.desiredRolesCount,
       targetCountriesCount: profile.targetCountries.length
     });
     Sentry.captureMessage("Free match validation failed", "warning");
@@ -47,16 +55,25 @@ export async function POST(request: Request) {
   const cv = formData.get("cv");
   const cvFileName = cv instanceof File && cv.size > 0 ? cv.name : "Not provided in free flow";
   const now = new Date().toISOString();
-  const selectedTracks = listField(formData, "desiredRoles");
+  const selectedTrackIds = exactFieldValues(formData, "selectedTrackId");
+  const selectedTrackId = selectedTrackIds[0] ?? "";
+  const bucketId = selectedTrackId;
+  const legacyDesiredRoles = listField(formData, "desiredRoles");
   const selectedMarkets = ["Europe"];
-  const profile: CandidateProfile = { id: makeId(), firstName: String(formData.get("firstName") ?? ""), email: normalizeEmail(String(formData.get("email") ?? "")), cvFileUrl: cvFileName, cvText: cv instanceof File && cv.size > 0 ? `Mock CV extraction for ${cvFileName}. Real PDF parsing will be added after storage is configured.` : "CV not provided in the free flow. Premium search will use the CV later.", targetCountries: selectedMarkets, targetCities: listField(formData, "targetCities"), targetIndustries: [], desiredRoles: selectedTracks, internshipStartDate: String(formData.get("internshipStartDate") ?? ""), internshipDuration: String(formData.get("internshipDuration") ?? ""), languagesSpoken: listField(formData, "languagesSpoken"), minimumCompensation: "", companiesAlreadyAppliedTo: listField(formData, "companiesAlreadyAppliedTo"), idealInternshipDescription: "", thingsToAvoid: String(formData.get("thingsToAvoid") ?? ""), createdAt: now };
-  if (!profile.email || !profile.targetCountries.length || !profile.desiredRoles.length) {
-    captureValidationFailure("missing_required_fields", profile);
+  const profile: CandidateProfile = { id: makeId(), firstName: String(formData.get("firstName") ?? ""), email: normalizeEmail(String(formData.get("email") ?? "")), cvFileUrl: cvFileName, cvText: cv instanceof File && cv.size > 0 ? `Mock CV extraction for ${cvFileName}. Real PDF parsing will be added after storage is configured.` : "CV not provided in the free flow. Premium search will use the CV later.", targetCountries: selectedMarkets, targetCities: listField(formData, "targetCities"), targetIndustries: [], desiredRoles: selectedTrackId ? [selectedTrackId] : [], internshipStartDate: String(formData.get("internshipStartDate") ?? ""), internshipDuration: String(formData.get("internshipDuration") ?? ""), languagesSpoken: listField(formData, "languagesSpoken"), minimumCompensation: "", companiesAlreadyAppliedTo: listField(formData, "companiesAlreadyAppliedTo"), idealInternshipDescription: "", thingsToAvoid: String(formData.get("thingsToAvoid") ?? ""), createdAt: now };
+  const validationDetails = { selectedTrackId, bucketId, selectedTrackCount: selectedTrackIds.length, desiredRolesCount: legacyDesiredRoles.length };
+
+  if (!profile.email || !profile.targetCountries.length || !selectedTrackId) {
+    captureValidationFailure("missing_required_fields", profile, validationDetails);
     return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
   }
-  if (profile.desiredRoles.length > 2) {
-    captureValidationFailure("too_many_internship_tracks", profile);
-    return NextResponse.json({ error: "Select no more than 2 internship tracks." }, { status: 400 });
+  if (selectedTrackIds.length > 1) {
+    captureValidationFailure("too_many_internship_tracks", profile, validationDetails);
+    return NextResponse.json({ error: "Select exactly one internship track." }, { status: 400 });
+  }
+  if (!getActiveFreeBucketById(bucketId)) {
+    captureValidationFailure("invalid_internship_track", profile, validationDetails);
+    return NextResponse.json({ error: "Invalid internship track." }, { status: 400 });
   }
 
   const reportId = makeId();
@@ -74,7 +91,12 @@ export async function POST(request: Request) {
       }
     }
 
-    const matchedSearch = matchSearchBucket(profile);
+    const matchedSearch = matchSearchBucketFromBucketId(bucketId);
+    if (!matchedSearch) {
+      captureValidationFailure("invalid_internship_track", profile, validationDetails);
+      return NextResponse.json({ error: "Invalid internship track." }, { status: 400 });
+    }
+
     const topOffer = await getBestCachedOpportunityForProfile(profile, matchedSearch);
     const freeOffers = topOffer ? [topOffer] : [];
     const premiumOffers = mockOffers.filter((offer) => offer.isPremium).slice(0, 3);
@@ -93,14 +115,18 @@ export async function POST(request: Request) {
       scope.setTag("route", "api/search-internships");
       scope.setTag("emailDomain", emailDomain(profile.email));
       scope.setTag("reportId", reportId);
+      scope.setTag("selectedTrackId", selectedTrackId);
+      scope.setTag("bucketId", bucketId);
       scope.setContext("free_match_failure", {
         errorMessage: message,
         hasSupabaseConfig: hasSupabaseConfig(),
         profileId: profile.id,
         reportId,
-        desiredRoles: profile.desiredRoles,
+        selectedTrackId,
+        bucketId,
+        selectedTrackCount: selectedTrackIds.length,
+        desiredRolesCount: legacyDesiredRoles.length,
         targetCountries: profile.targetCountries,
-        desiredRolesCount: profile.desiredRoles.length,
         targetCountriesCount: profile.targetCountries.length
       });
       Sentry.captureException(error);
