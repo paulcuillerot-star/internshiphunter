@@ -28,6 +28,18 @@ function retryWasUsed(errorMessage?: string) {
   return Boolean(errorMessage?.includes("[retry-used]"));
 }
 
+function premiumErrorType(errorMessage?: string) {
+  if (!errorMessage) return "none";
+  if (/zero valid|No language-compatible|no strong leads/i.test(errorMessage)) return "zero_results";
+  if (/OpenAI|web_search|JSON|parse|timeout|network|rate/i.test(errorMessage)) return "recoverable_search_error";
+  return "technical_error";
+}
+
+function canRetryPremiumSearch(errorMessage?: string) {
+  const errorType = premiumErrorType(errorMessage);
+  return !retryWasUsed(errorMessage) && (errorType === "zero_results" || errorType === "recoverable_search_error");
+}
+
 export default async function PremiumPage({ params, searchParams }: { params: { id: string }; searchParams: PremiumSearchParams }) {
   const report = await getReportIfAuthorized(params.id, searchParams.token);
   if (!report) notFound();
@@ -39,7 +51,7 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
   const paymentCancelled = searchParams.payment === "cancelled";
   const premiumStatus = report.premiumSearchStatus ?? "not_started";
   const completedOffers = premiumStatus === "completed" ? report.premiumOffers.slice(0, 3) : [];
-  const retryAvailable = premiumStatus === "failed" && completedOffers.length === 0 && !retryWasUsed(report.premiumSearchError);
+  const retryAvailable = premiumStatus === "failed" && completedOffers.length === 0 && canRetryPremiumSearch(report.premiumSearchError);
 
   if (paymentReturning && !unlocked) {
     return (
@@ -108,7 +120,7 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
           ) : (
             <>
               <p className="mt-4 text-ink/70">
-                The retry has already been used. Please contact support with this report id so we can review it manually.
+                This search cannot be retried automatically. Please contact support with this report id so we can review it manually.
               </p>
               <p className="mt-4 rounded-md bg-amber-50 p-3 text-sm text-amber-700">Report id: {report.id}</p>
             </>
