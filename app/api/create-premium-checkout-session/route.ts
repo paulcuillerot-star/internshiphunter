@@ -9,15 +9,175 @@ export const runtime = "nodejs";
 
 type RawPremiumInputs = Record<keyof PremiumSearchInputs, string>;
 
+const languageAliases: Record<string, string> = {
+  french: "French",
+  francais: "French",
+  français: "French",
+  fr: "French",
+  english: "English",
+  anglais: "English",
+  en: "English",
+  italian: "Italian",
+  italien: "Italian",
+  it: "Italian",
+  spanish: "Spanish",
+  espagnol: "Spanish",
+  es: "Spanish",
+  german: "German",
+  allemand: "German",
+  de: "German",
+  dutch: "Dutch",
+  neerlandais: "Dutch",
+  néerlandais: "Dutch",
+  nl: "Dutch",
+  portuguese: "Portuguese",
+  portugais: "Portuguese",
+  pt: "Portuguese"
+};
+
+const countryAliases: Record<string, string> = {
+  france: "France",
+  switzerland: "Switzerland",
+  suisse: "Switzerland",
+  belgium: "Belgium",
+  belgique: "Belgium",
+  netherlands: "Netherlands",
+  holland: "Netherlands",
+  paysbas: "Netherlands",
+  "pays-bas": "Netherlands",
+  germany: "Germany",
+  allemagne: "Germany",
+  italy: "Italy",
+  italie: "Italy",
+  spain: "Spain",
+  espagne: "Spain",
+  portugal: "Portugal",
+  "united kingdom": "United Kingdom",
+  uk: "United Kingdom",
+  england: "United Kingdom",
+  ireland: "Ireland",
+  irlande: "Ireland",
+  luxembourg: "Luxembourg",
+  monaco: "Monaco",
+  austria: "Austria",
+  autriche: "Austria",
+  denmark: "Denmark",
+  danemark: "Denmark",
+  sweden: "Sweden",
+  suede: "Sweden",
+  suède: "Sweden",
+  norway: "Norway",
+  norvege: "Norway",
+  norvège: "Norway",
+  finland: "Finland",
+  finlande: "Finland",
+  "united states": "United States",
+  usa: "United States",
+  us: "United States",
+  canada: "Canada",
+  australia: "Australia",
+  australie: "Australia",
+  singapore: "Singapore",
+  singapour: "Singapore",
+  "united arab emirates": "United Arab Emirates",
+  uae: "United Arab Emirates",
+  "emirats arabes unis": "United Arab Emirates",
+  "émirats arabes unis": "United Arab Emirates"
+};
+
+const countryAliasKeys = Object.keys(countryAliases).sort((a, b) => b.length - a.length);
+
+function normalizeKey(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function titleCase(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function unique(items: string[]) {
+  return Array.from(new Set(items.map((item) => item.trim()).filter(Boolean)));
+}
+
 function splitList(value: string) {
-  return value.split(",").map((item) => item.trim()).filter(Boolean);
+  return unique(String(value ?? "").split(/[,;\/\n]+/).map((item) => item.trim()));
+}
+
+function splitLooseWords(value: string) {
+  return unique(String(value ?? "").replace(/[;\/\n]+/g, ",").split(/[ ,]+/).map((item) => item.trim()));
+}
+
+function normalizeLanguages(value: string) {
+  const directParts = splitList(value);
+  const parts = directParts.length === 1 && directParts[0]?.includes(" ") ? splitLooseWords(value) : directParts;
+  return unique(parts.map((part) => languageAliases[normalizeKey(part)] ?? titleCase(part)));
+}
+
+function splitTrailingCountry(value: string) {
+  const key = normalizeKey(value);
+
+  for (const countryKey of countryAliasKeys) {
+    const country = countryAliases[countryKey];
+    if (key === countryKey) {
+      return { country };
+    }
+
+    if (key.endsWith(` ${countryKey}`)) {
+      const city = titleCase(key.slice(0, -countryKey.length).trim());
+      if (city) {
+        return { city, country };
+      }
+    }
+  }
+
+  return null;
+}
+
+function normalizeLocationParts(...values: string[]) {
+  const combined = values.filter(Boolean).join(",");
+  const parts = splitList(combined).flatMap((part) => {
+    const split = splitTrailingCountry(part);
+    if (split?.city && split.country) return [split.city, split.country];
+    if (split?.country) return [split.country];
+
+    return [titleCase(part)];
+  });
+  return unique(parts);
+}
+
+function classifyLocations(rawCountries: string, rawCities: string) {
+  const parts = normalizeLocationParts(rawCountries, rawCities);
+  const targetCountries: string[] = [];
+  const targetCities: string[] = [];
+
+  for (const part of parts) {
+    const country = countryAliases[normalizeKey(part)];
+    if (country) {
+      targetCountries.push(country);
+    } else {
+      targetCities.push(part);
+    }
+  }
+
+  return { targetCountries: unique(targetCountries), targetCities: unique(targetCities) };
 }
 
 function normalizeInputs(raw: Partial<RawPremiumInputs>): PremiumSearchInputs {
+  const locations = classifyLocations(raw.targetCountries ?? "", raw.targetCities ?? "");
   return {
-    targetCountries: splitList(raw.targetCountries ?? ""),
-    targetCities: splitList(raw.targetCities ?? ""),
-    languagesSpoken: splitList(raw.languagesSpoken ?? ""),
+    targetCountries: locations.targetCountries,
+    targetCities: locations.targetCities,
+    languagesSpoken: normalizeLanguages(raw.languagesSpoken ?? ""),
     internshipStartDate: String(raw.internshipStartDate ?? "").trim(),
     internshipDuration: String(raw.internshipDuration ?? "").trim(),
     companiesAlreadyAppliedTo: splitList(raw.companiesAlreadyAppliedTo ?? ""),
@@ -56,9 +216,9 @@ export async function POST(request: Request) {
   }
 
   const premiumInputs = normalizeInputs(rawPremiumInputs ?? {});
-  if (!premiumInputs.targetCountries.length || !premiumInputs.languagesSpoken.length) {
+  if ((!premiumInputs.targetCountries.length && !premiumInputs.targetCities.length) || !premiumInputs.languagesSpoken.length) {
     capturePremiumCheckout("Premium inputs validation failed", reportId, premiumInputs, "warning");
-    return NextResponse.json({ error: "Target countries and languages are required." }, { status: 400 });
+    return NextResponse.json({ error: "Please add at least one target location and one language." }, { status: 400 });
   }
 
   try {
