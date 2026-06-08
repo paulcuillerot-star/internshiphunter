@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export function PremiumSearchRunner({
   reportId,
@@ -18,7 +18,7 @@ export function PremiumSearchRunner({
   const [error, setError] = useState("");
   const [isRunning, setIsRunning] = useState(false);
 
-  async function runSearch() {
+  const runSearch = useCallback(async () => {
     if (started.current) return;
     started.current = true;
     setIsRunning(true);
@@ -57,12 +57,12 @@ export function PremiumSearchRunner({
       setError("The premium search could not start. Please contact support with this report id.");
       setIsRunning(false);
     }
-  }
+  }, [accessToken, reportId, retry]);
 
   useEffect(() => {
     if (!autoStart) return;
     void runSearch();
-  }, [autoStart]);
+  }, [autoStart, runSearch]);
 
   return (
     <div className="mt-8 max-w-2xl rounded-lg border border-emerald-100 bg-white p-8 shadow-soft">
