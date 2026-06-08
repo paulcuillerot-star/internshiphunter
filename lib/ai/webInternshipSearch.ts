@@ -181,6 +181,21 @@ function normalizeOffers(offers: Array<Omit<ScoredInternshipOffer, "id">>): Scor
   }));
 }
 
+function captureOpenAIRequestFailure(error: unknown, profile: CandidateProfile, model: string, queryCount: number) {
+  Sentry.withScope((scope) => {
+    scope.setTag("feature", "premium-live-search");
+    scope.setTag("model", model);
+    scope.setContext("premium_live_search_openai_failure", {
+      model,
+      queryCount,
+      targetCountriesCount: profile.targetCountries.length,
+      targetCitiesCount: profile.targetCities.length,
+      languagesCount: profile.languagesSpoken.length
+    });
+    Sentry.captureException(error);
+  });
+}
+
 export async function webInternshipSearch(profile: CandidateProfile, cvText: string) {
   if (!hasOpenAIConfig()) {
     return {
@@ -193,37 +208,43 @@ export async function webInternshipSearch(profile: CandidateProfile, cvText: str
   const researchPrompt = readPrompt("internship-web-search.md");
   const scoringPrompt = readPrompt("job-scoring.md");
   const queries = buildSearchQueries(profile);
+  const model = process.env.OPENAI_MODEL || "gpt-5";
 
-  const response = await createOpenAIResponse<OpenAITextResponse>({
-    model: process.env.OPENAI_MODEL || "gpt-5",
-    reasoning: { effort: "low" },
-    tools: [{ type: "web_search" }],
-    tool_choice: "required",
-    include: ["web_search_call.action.sources"],
-    text: {
-      format: outputSchema
-    },
-    input: [
-      {
-        role: "system",
-        content: `${researchPrompt}\n\n${scoringPrompt}`
+  let response: OpenAITextResponse;
+  try {
+    response = await createOpenAIResponse<OpenAITextResponse>({
+      model,
+      tools: [{ type: "web_search" }],
+      tool_choice: "required",
+      include: ["web_search_call.action.sources"],
+      text: {
+        format: outputSchema
       },
-      {
-        role: "user",
-        content: JSON.stringify(
-          {
-            today: new Date().toISOString().slice(0, 10),
-            candidateProfile: profile,
-            cvText,
-            suggestedQueries: queries,
-            requiredOutput: "Return up to 3 premium internship leads. Prefer 2 strong language-compatible leads over 3 weak or incompatible leads. If no valid compatible opportunities exist, return an empty offers array."
-          },
-          null,
-          2
-        )
-      }
-    ]
-  });
+      input: [
+        {
+          role: "system",
+          content: `${researchPrompt}\n\n${scoringPrompt}`
+        },
+        {
+          role: "user",
+          content: JSON.stringify(
+            {
+              today: new Date().toISOString().slice(0, 10),
+              candidateProfile: profile,
+              cvText,
+              suggestedQueries: queries,
+              requiredOutput: "Return up to 3 premium internship leads. Prefer 2 strong language-compatible leads over 3 weak or incompatible leads. If no valid compatible opportunities exist, return an empty offers array."
+            },
+            null,
+            2
+          )
+        }
+      ]
+    });
+  } catch (error) {
+    captureOpenAIRequestFailure(error, profile, model, queries.length);
+    throw error;
+  }
 
   assertWebSearchWasUsed(response);
   const text = extractText(response);
@@ -232,12 +253,14 @@ export async function webInternshipSearch(profile: CandidateProfile, cvText: str
   if (!offers.length) {
     Sentry.withScope((scope) => {
       scope.setTag("feature", "premium-live-search");
+      scope.setTag("model", model);
       scope.setContext("premium_live_search_empty", {
         desiredRoles: profile.desiredRoles,
         targetCountries: profile.targetCountries,
         targetCitiesCount: profile.targetCities.length,
         languagesSpoken: profile.languagesSpoken,
-        queryCount: queries.length
+        queryCount: queries.length,
+        model
       });
       Sentry.captureMessage("Premium live search returned zero valid opportunities", "warning");
     });
