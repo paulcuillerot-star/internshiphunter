@@ -57,10 +57,13 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
     return (
       <section className="section">
         <div className="max-w-3xl">
-          <p className="text-sm font-semibold uppercase text-signal">Premium report</p>
-          <h1 className="mt-3 text-4xl font-bold text-ink">Personalize your live search before payment</h1>
+          <p className="text-sm font-semibold uppercase text-signal">Premium search</p>
+          <h1 className="mt-3 text-4xl font-black text-ink">Find the 3 best internships for you right now</h1>
           <p className="mt-4 max-w-2xl text-ink/70">
-            Unlock 3 curated internship leads for €5.90, matched to your profile, cities, languages and timing. If your criteria are narrow, we may include close alternatives and clearly explain what was broadened.
+            Add a few details so Internship Hunter can search for opportunities that fit your profile, locations, languages and timing.
+          </p>
+          <p className="mt-3 max-w-2xl text-sm font-semibold text-ink/55">
+            If your criteria are narrow, we may include close alternatives and explain what was broadened.
           </p>
           <PremiumSearchForm reportId={report.id} accessToken={report.accessToken} initialInputs={report.premiumInputs} paymentCancelled={paymentCancelled} />
         </div>
