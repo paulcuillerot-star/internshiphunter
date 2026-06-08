@@ -29,9 +29,16 @@ export function PremiumSearchRunner({
   const [isRunning, setIsRunning] = useState(false);
   const [isPolling, setIsPolling] = useState(pollOnly);
 
-  const refreshPage = useCallback(() => {
-    router.refresh();
-  }, [router]);
+  const cleanPremiumUrl = useCallback(() => {
+    const params = new URLSearchParams();
+    if (accessToken) params.set("token", accessToken);
+    params.set("refresh", String(Date.now()));
+    return `/premium/${reportId}?${params.toString()}`;
+  }, [accessToken, reportId]);
+
+  const navigateToCleanPremiumUrl = useCallback(() => {
+    router.replace(cleanPremiumUrl());
+  }, [cleanPremiumUrl, router]);
 
   const buildStatusUrl = useCallback(() => {
     const params = new URLSearchParams({ reportId });
@@ -61,7 +68,7 @@ export function PremiumSearchRunner({
       setMessage("Premium search completed. Loading your leads...");
       setIsPolling(false);
       clearPoll();
-      refreshPage();
+      navigateToCleanPremiumUrl();
       return;
     }
 
@@ -69,7 +76,7 @@ export function PremiumSearchRunner({
       setMessage("Premium search finished with an issue. Loading the recovery options...");
       setIsPolling(false);
       clearPoll();
-      refreshPage();
+      navigateToCleanPremiumUrl();
       return;
     }
 
@@ -82,9 +89,9 @@ export function PremiumSearchRunner({
       setMessage("Waiting for payment confirmation before starting the search.");
       setIsPolling(false);
       clearPoll();
-      refreshPage();
+      navigateToCleanPremiumUrl();
     }
-  }, [buildStatusUrl, clearPoll, refreshPage]);
+  }, [buildStatusUrl, clearPoll, navigateToCleanPremiumUrl]);
 
   const startPolling = useCallback(() => {
     if (pollTimer.current) return;
@@ -119,7 +126,14 @@ export function PremiumSearchRunner({
       if (result?.status === "completed") {
         setMessage("Premium search completed. Loading your leads...");
         setIsRunning(false);
-        refreshPage();
+        navigateToCleanPremiumUrl();
+        return;
+      }
+
+      if (result?.status === "failed") {
+        setMessage("Premium search finished with an issue. Loading the recovery options...");
+        setIsRunning(false);
+        navigateToCleanPremiumUrl();
         return;
       }
 
@@ -137,7 +151,7 @@ export function PremiumSearchRunner({
       setError("The premium search could not start. Please contact support with this report id.");
       setIsRunning(false);
     }
-  }, [accessToken, pollOnly, refreshPage, reportId, retry, startPolling]);
+  }, [accessToken, navigateToCleanPremiumUrl, pollOnly, reportId, retry, startPolling]);
 
   useEffect(() => {
     if (pollOnly) {
@@ -159,7 +173,7 @@ export function PremiumSearchRunner({
       <p className="mt-4 text-ink/70">{message}</p>
       {error ? <p className="mt-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
       {autoStart || pollOnly ? (
-        <button type="button" onClick={refreshPage} className="mt-6 inline-flex button-secondary">
+        <button type="button" onClick={navigateToCleanPremiumUrl} className="mt-6 inline-flex button-secondary">
           Refresh status
         </button>
       ) : (
