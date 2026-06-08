@@ -30,16 +30,13 @@ function retryWasUsed(errorMessage?: string) {
   return Boolean(errorMessage?.includes("[retry-used]"));
 }
 
-function premiumErrorType(errorMessage?: string) {
-  if (!errorMessage) return "none";
-  if (/zero valid|No language-compatible|no strong leads/i.test(errorMessage)) return "zero_results";
-  if (/OpenAI|web_search|JSON|parse|timeout|network|rate/i.test(errorMessage)) return "recoverable_search_error";
-  return "technical_error";
+function isClearlyUnrecoverablePremiumError(errorMessage?: string) {
+  if (!errorMessage) return false;
+  return /payment required|unauthorized|forbidden|missing report|missing premium criteria|premium criteria are required|token|report access/i.test(errorMessage);
 }
 
 function canRetryPremiumSearch(errorMessage?: string) {
-  const errorType = premiumErrorType(errorMessage);
-  return !retryWasUsed(errorMessage) && (errorType === "zero_results" || errorType === "recoverable_search_error");
+  return !retryWasUsed(errorMessage) && !isClearlyUnrecoverablePremiumError(errorMessage);
 }
 
 export default async function PremiumPage({ params, searchParams }: { params: { id: string }; searchParams: PremiumSearchParams }) {
@@ -53,7 +50,7 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
   const paymentCancelled = searchParams.payment === "cancelled";
   const premiumStatus = report.premiumSearchStatus ?? "not_started";
   const completedOffers = premiumStatus === "completed" ? report.premiumOffers.slice(0, 3) : [];
-  const retryAvailable = premiumStatus === "failed" && completedOffers.length === 0 && canRetryPremiumSearch(report.premiumSearchError);
+  const retryAvailable = premiumStatus === "failed" && report.premiumOffers.length === 0 && canRetryPremiumSearch(report.premiumSearchError);
 
   if (paymentReturning && !unlocked && searchParams.session_id) {
     return <PremiumCheckoutConfirmer reportId={report.id} accessToken={report.accessToken} sessionId={searchParams.session_id} />;
@@ -129,14 +126,14 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
       <section className="section">
         <div className="max-w-2xl rounded-lg border border-amber-100 bg-white p-8 shadow-soft">
           <p className="text-sm font-semibold uppercase text-amber-600">Premium search needs a broader pass</p>
-          <h1 className="mt-3 text-4xl font-bold text-ink">We could not find strong leads with those exact criteria</h1>
+          <h1 className="mt-3 text-4xl font-bold text-ink">We couldn&apos;t find strong enough leads yet</h1>
           <p className="mt-4 text-ink/70">
-            Your payment is recorded. Language compatibility and quality filters stayed strict, so the first search did not deliver a strong enough result.
+            Your payment is recorded. The first search was too narrow or did not find enough high-quality direct opportunities. You can retry once with broader criteria at no extra cost.
           </p>
           {retryAvailable ? (
             <>
               <p className="mt-4 text-ink/70">
-                You can broaden your search once and retry your premium search at no extra cost. We may broaden nearby locations or adjacent roles, but we will not broaden language compatibility or include weak filler.
+                We may broaden nearby locations and adjacent roles, but we will keep language compatibility and excluded companies strict.
               </p>
               <PremiumSearchRunner reportId={report.id} accessToken={report.accessToken} retry autoStart={false} />
             </>
