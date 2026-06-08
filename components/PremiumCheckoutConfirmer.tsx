@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 export function PremiumCheckoutConfirmer({ reportId, accessToken, sessionId }: { reportId: string; accessToken?: string; sessionId: string }) {
@@ -8,6 +8,12 @@ export function PremiumCheckoutConfirmer({ reportId, accessToken, sessionId }: {
   const started = useRef(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("Stripe sent you back successfully. We are securely confirming your Checkout session.");
+  const cleanPremiumUrl = useMemo(() => {
+    const params = new URLSearchParams();
+    if (accessToken) params.set("token", accessToken);
+    params.set("refresh", String(Date.now()));
+    return `/premium/${reportId}?${params.toString()}`;
+  }, [accessToken, reportId]);
 
   useEffect(() => {
     if (started.current) return;
@@ -27,17 +33,11 @@ export function PremiumCheckoutConfirmer({ reportId, accessToken, sessionId }: {
       }
 
       setMessage("Payment confirmed. Loading your premium search...");
-      router.refresh();
+      router.replace(cleanPremiumUrl);
     }
 
     confirmSession().catch(() => setError("Could not confirm the Stripe Checkout session yet."));
-  }, [accessToken, reportId, router, sessionId]);
-
-  const params = new URLSearchParams();
-  if (accessToken) params.set("token", accessToken);
-  params.set("paid", "true");
-  params.set("session_id", sessionId);
-  params.set("refresh", String(Date.now()));
+  }, [accessToken, cleanPremiumUrl, reportId, router, sessionId]);
 
   return (
     <section className="section">
@@ -46,7 +46,7 @@ export function PremiumCheckoutConfirmer({ reportId, accessToken, sessionId }: {
         <h1 className="mt-3 text-4xl font-bold text-ink">Unlocking your report...</h1>
         <p className="mt-4 text-ink/70">{message}</p>
         {error ? <p className="mt-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
-        <a href={`/premium/${reportId}?${params.toString()}`} className="mt-6 inline-flex button-primary">
+        <a href={cleanPremiumUrl} className="mt-6 inline-flex button-primary">
           Refresh unlock status
         </a>
       </div>
