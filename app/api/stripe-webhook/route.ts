@@ -2,7 +2,7 @@ import * as Sentry from "@sentry/nextjs";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getStripeClient } from "@/lib/stripe";
-import { markReportPaid } from "@/lib/store";
+import { getReport, markReportPaid, updateReportPremiumSearchStatus } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -16,6 +16,8 @@ type StripeWebhookContext = {
 };
 
 type SentryMessageLevel = "info" | "warning" | "error";
+
+const terminalPremiumStatuses = new Set(["running", "completed", "failed"]);
 
 function captureStripeWebhookMessage(message: string, context: StripeWebhookContext, level: SentryMessageLevel = "info") {
   Sentry.withScope((scope) => {
@@ -41,6 +43,16 @@ function captureStripeWebhookException(error: unknown, context: StripeWebhookCon
     scope.setContext("stripe_webhook", context);
     Sentry.captureException(error);
   });
+}
+
+async function markPremiumSearchReadyIfNeeded(reportId: string) {
+  const report = await getReport(reportId);
+  if (!report?.premiumInputs) return;
+
+  const status = report.premiumSearchStatus ?? "not_started";
+  if (terminalPremiumStatuses.has(status)) return;
+
+  await updateReportPremiumSearchStatus(reportId, "ready_to_run");
 }
 
 export async function POST(request: Request) {
@@ -85,6 +97,7 @@ export async function POST(request: Request) {
 
       try {
         await markReportPaid(reportId);
+        await markPremiumSearchReadyIfNeeded(reportId);
         captureStripeWebhookMessage("Stripe report marked paid", { ...eventContext, reportId });
       } catch (error) {
         const failedContext = { ...eventContext, reportId };
