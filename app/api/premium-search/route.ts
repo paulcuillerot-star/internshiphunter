@@ -100,6 +100,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Premium criteria are required before running premium search." }, { status: 400 });
   }
 
+  if (status === "pending_payment") {
+    capturePremiumSearchMessage("Premium search blocked because payment is still pending", report, premiumInputs, "warning", retryRequested);
+    return NextResponse.json({ error: "Payment confirmation is still pending.", status: "pending_payment", offerCount: report.premiumOffers.length }, { status: 409 });
+  }
+
   if (status === "completed" && report.premiumOffers.length > 0) {
     capturePremiumSearchMessage("Premium search blocked because already completed", report, premiumInputs, "warning", retryRequested);
     return NextResponse.json({ status: "completed", offerCount: report.premiumOffers.length });
@@ -130,6 +135,11 @@ export async function POST(request: Request) {
       capturePremiumSearchMessage("Premium search retry blocked", report, premiumInputs, "warning", true);
       return NextResponse.json({ error: "Premium search retry is not available. Please contact support with this report id." }, { status: 409 });
     }
+  }
+
+  if (status !== "ready_to_run" && status !== "not_started" && !(status === "failed" && retryRequested)) {
+    capturePremiumSearchMessage("Premium search blocked because status is not runnable", report, premiumInputs, "warning", retryRequested);
+    return NextResponse.json({ error: "Premium search is not ready to run.", status, offerCount: report.premiumOffers.length }, { status: 409 });
   }
 
   try {
