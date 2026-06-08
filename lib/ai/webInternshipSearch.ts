@@ -14,6 +14,8 @@ type OpenAITextResponse = {
   }>;
 };
 
+type KeywordDefinition = { term: string; aliases: string[] };
+
 const outputSchema = {
   type: "json_schema",
   name: "premium_internship_search_results",
@@ -92,6 +94,60 @@ const outputSchema = {
   }
 };
 
+const roleKeywordDefinitions: KeywordDefinition[] = [
+  { term: "business development", aliases: ["business development", "biz dev", "bd"] },
+  { term: "marketing", aliases: ["marketing", "go-to-market", "gtm"] },
+  { term: "partnerships", aliases: ["partnership", "partnerships", "partner management"] },
+  { term: "sponsorship", aliases: ["sponsorship", "sponsorships", "commercial rights"] },
+  { term: "event management", aliases: ["event management", "events", "event operations", "matchday", "production"] },
+  { term: "operations", aliases: ["operations", "ops", "project operations"] },
+  { term: "strategy", aliases: ["strategy", "strategic", "transformation"] },
+  { term: "sales", aliases: ["sales", "account management", "client relationship"] },
+  { term: "brand activation", aliases: ["brand activation", "activation", "brand management"] },
+  { term: "commercial", aliases: ["commercial", "revenue", "business analyst"] },
+  { term: "consulting", aliases: ["consulting", "consultant", "analyst"] },
+  { term: "finance", aliases: ["finance", "investment", "m&a", "private equity", "asset management"] },
+  { term: "product", aliases: ["product", "product management", "product owner"] },
+  { term: "data analytics", aliases: ["data", "analytics", "business intelligence", "dashboard", "bi"] },
+  { term: "e-commerce", aliases: ["e-commerce", "ecommerce", "marketplace", "merchandising"] }
+];
+
+const industryKeywordDefinitions: KeywordDefinition[] = [
+  { term: "sports agency", aliases: ["sports agency", "sport agency"] },
+  { term: "sports", aliases: ["sport", "sports", "football", "tennis", "club", "league", "federation", "tournament"] },
+  { term: "event company", aliases: ["event company", "events company", "event agency"] },
+  { term: "consumer brand", aliases: ["consumer brand", "consumer goods", "fmcg"] },
+  { term: "luxury", aliases: ["luxury", "fashion", "retail"] },
+  { term: "startup", aliases: ["startup", "scaleup", "venture", "founder"] },
+  { term: "hospitality", aliases: ["hospitality", "hotel", "tourism", "travel"] },
+  { term: "tech", aliases: ["tech", "software", "saas", "digital"] }
+];
+
+const seniorityKeywordDefinitions: KeywordDefinition[] = [
+  { term: "internship", aliases: ["internship", "intern", "stage"] },
+  { term: "trainee", aliases: ["trainee", "graduate trainee"] },
+  { term: "student placement", aliases: ["student placement", "placement", "working student"] }
+];
+
+const sportEventSignals = [
+  "sport",
+  "sports",
+  "sponsorship",
+  "partnership",
+  "partnerships",
+  "events",
+  "event",
+  "federation",
+  "club",
+  "agency",
+  "tournament",
+  "hospitality",
+  "fan experience",
+  "matchday",
+  "football",
+  "tennis"
+];
+
 function readPrompt(fileName: string) {
   try {
     return fs.readFileSync(path.join(process.cwd(), "prompts", fileName), "utf8");
@@ -100,37 +156,134 @@ function readPrompt(fileName: string) {
   }
 }
 
-export function buildSearchQueries(profile: CandidateProfile) {
-  const roles = profile.desiredRoles.length ? profile.desiredRoles : ["internship"];
-  const countries = profile.targetCountries.length ? profile.targetCountries : ["international"];
-  const industries = profile.targetIndustries.length ? profile.targetIndustries : ["business"];
-  const cities = profile.targetCities;
+function normalizeSearchText(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9&+\-/\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-  const directQueries = roles.flatMap((role) =>
-    countries.flatMap((country) => [
-      `${role} ${industries[0]} ${country}`,
-      `${role} ${country} internship direct application`,
-      `${industries[0]} ${role} ${country} careers`
+function includesPhrase(text: string, phrase: string) {
+  const normalizedPhrase = normalizeSearchText(phrase).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|\\s)${normalizedPhrase}(\\s|$)`).test(text);
+}
+
+function extractMatchingTerms(text: string, definitions: KeywordDefinition[]) {
+  const normalizedText = normalizeSearchText(text);
+  return definitions
+    .filter((definition) => definition.aliases.some((alias) => includesPhrase(normalizedText, alias)))
+    .map((definition) => definition.term);
+}
+
+function removeAvoidedTerms(terms: string[], thingsToAvoid: string) {
+  const avoidedText = normalizeSearchText(thingsToAvoid);
+  if (!avoidedText) return terms;
+  return terms.filter((term) => !includesPhrase(avoidedText, term));
+}
+
+function sanitizeCompanyForQuery(company: string) {
+  return company.replace(/["\n\r]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function buildAvoidedCompanySuffix(profile: CandidateProfile) {
+  const companies = profile.companiesAlreadyAppliedTo.map(sanitizeCompanyForQuery).filter(Boolean).slice(0, 3);
+  return companies.map((company) => `-"${company}"`).join(" ");
+}
+
+function extractUsefulKeywords(profile: CandidateProfile) {
+  const idealText = profile.idealInternshipDescription ?? "";
+  const profileText = [
+    idealText,
+    profile.desiredRoles.join(" "),
+    profile.targetIndustries.join(" "),
+    profile.cvText.slice(0, 1500)
+  ].join(" ");
+
+  const roleTerms = removeAvoidedTerms(extractMatchingTerms(profileText, roleKeywordDefinitions), profile.thingsToAvoid).slice(0, 5);
+  const industryTerms = removeAvoidedTerms(extractMatchingTerms(profileText, industryKeywordDefinitions), profile.thingsToAvoid).slice(0, 4);
+  const seniorityTerms = extractMatchingTerms(profileText, seniorityKeywordDefinitions).slice(0, 2);
+
+  return {
+    roleTerms,
+    industryTerms,
+    seniorityTerms: seniorityTerms.length ? seniorityTerms : ["internship"]
+  };
+}
+
+function isSportEventRelated(profile: CandidateProfile, keywords: ReturnType<typeof extractUsefulKeywords>) {
+  const text = normalizeSearchText(
+    [
+      profile.idealInternshipDescription,
+      profile.desiredRoles.join(" "),
+      profile.targetIndustries.join(" "),
+      profile.cvText.slice(0, 1500),
+      keywords.roleTerms.join(" "),
+      keywords.industryTerms.join(" ")
+    ].join(" ")
+  );
+
+  return sportEventSignals.some((signal) => includesPhrase(text, signal));
+}
+
+function cleanQuery(query: string) {
+  return query.replace(/\s+/g, " ").trim();
+}
+
+export function buildSearchQueries(profile: CandidateProfile) {
+  const countries = profile.targetCountries.length ? profile.targetCountries : ["international"];
+  const cities = profile.targetCities;
+  const locations = cities.length ? cities : countries;
+  const keywords = extractUsefulKeywords(profile);
+  const roleTerms = keywords.roleTerms.length ? keywords.roleTerms : profile.desiredRoles.length ? profile.desiredRoles.slice(0, 3) : ["business"];
+  const industryTerms = keywords.industryTerms.length ? keywords.industryTerms : profile.targetIndustries.length ? profile.targetIndustries.slice(0, 2) : ["business"];
+  const seniority = keywords.seniorityTerms[0] ?? "internship";
+  const avoidedCompanySuffix = buildAvoidedCompanySuffix(profile);
+  const hasSportEventIntent = isSportEventRelated(profile, keywords);
+
+  const targetedQueries = locations.flatMap((location) =>
+    roleTerms.flatMap((role) => [
+      `${role} internship ${location} ${industryTerms[0] ?? "business"} ${avoidedCompanySuffix}`,
+      `${role} intern ${location} direct application ${avoidedCompanySuffix}`
     ])
   );
 
-  const cityQueries = cities.flatMap((city) => roles.map((role) => `${role} ${city} ${industries[0]}`));
+  const idealDrivenQueries = locations.flatMap((location) =>
+    roleTerms.slice(0, 4).flatMap((role) =>
+      industryTerms.slice(0, 3).map((industry) => `${role} ${seniority} ${location} ${industry} ${avoidedCompanySuffix}`)
+    )
+  );
+
+  const atsKeyword = [...roleTerms, ...industryTerms].slice(0, 3).join(" ") || "business internship";
+  const locationKeyword = locations[0] ?? countries[0];
   const hiddenBoardQueries = [
-    `site:greenhouse.io internship ${industries.join(" ")}`,
-    `site:lever.co internship ${roles.join(" ")}`,
-    `site:workable.com event intern ${countries.join(" ")}`,
-    `site:teamtailor.com marketing intern ${industries.join(" ")}`,
-    `site:smartrecruiters.com internship business development ${countries.join(" ")}`
-  ];
-  const nicheQueries = [
-    `sports sponsorship intern Europe`,
-    `commercial operations intern sports federation`,
-    `partnerships intern sports ${countries.join(" ")}`,
-    `event operations intern ${cities[0] ?? countries[0]}`,
-    `stage marketing sport Suisse`
+    `site:greenhouse.io internship ${atsKeyword} ${locationKeyword}`,
+    `site:lever.co internship ${atsKeyword} ${locationKeyword}`,
+    `site:workable.com internship ${atsKeyword} ${locationKeyword}`,
+    `site:teamtailor.com internship ${atsKeyword} ${locationKeyword}`,
+    `site:smartrecruiters.com internship ${atsKeyword} ${locationKeyword}`,
+    `site:jobs.ashbyhq.com internship ${atsKeyword} ${locationKeyword}`
   ];
 
-  return Array.from(new Set([...directQueries, ...cityQueries, ...hiddenBoardQueries, ...nicheQueries])).slice(0, 18);
+  const conditionalQueries = hasSportEventIntent
+    ? [
+        `partnerships internship ${locationKeyword} sports ${avoidedCompanySuffix}`,
+        `sponsorship intern ${locationKeyword} sports agency ${avoidedCompanySuffix}`,
+        `event management internship ${locationKeyword} ${avoidedCompanySuffix}`,
+        `brand activation internship ${locationKeyword} sports ${avoidedCompanySuffix}`,
+        `commercial partnerships intern ${locationKeyword} ${avoidedCompanySuffix}`
+      ]
+    : [
+        `marketing internship ${locationKeyword} ${avoidedCompanySuffix}`,
+        `business development internship ${locationKeyword} ${avoidedCompanySuffix}`,
+        `brand management internship ${locationKeyword} ${avoidedCompanySuffix}`,
+        `commercial internship ${locationKeyword} ${avoidedCompanySuffix}`,
+        `strategy internship ${locationKeyword} ${avoidedCompanySuffix}`
+      ];
+
+  return Array.from(new Set([...idealDrivenQueries, ...targetedQueries, ...hiddenBoardQueries, ...conditionalQueries].map(cleanQuery).filter(Boolean))).slice(0, 18);
 }
 
 function extractText(response: OpenAITextResponse) {
