@@ -24,6 +24,22 @@ function refreshHref(reportId: string, token?: string) {
   return `/premium/${reportId}?${params.toString()}`;
 }
 
+function retryWasUsed(errorMessage?: string) {
+  return Boolean(errorMessage?.includes("[retry-used]"));
+}
+
+function premiumErrorType(errorMessage?: string) {
+  if (!errorMessage) return "none";
+  if (/zero valid|No language-compatible|no strong leads/i.test(errorMessage)) return "zero_results";
+  if (/OpenAI|web_search|JSON|parse|timeout|network|rate/i.test(errorMessage)) return "recoverable_search_error";
+  return "technical_error";
+}
+
+function canRetryPremiumSearch(errorMessage?: string) {
+  const errorType = premiumErrorType(errorMessage);
+  return !retryWasUsed(errorMessage) && (errorType === "zero_results" || errorType === "recoverable_search_error");
+}
+
 export default async function PremiumPage({ params, searchParams }: { params: { id: string }; searchParams: PremiumSearchParams }) {
   const report = await getReportIfAuthorized(params.id, searchParams.token);
   if (!report) notFound();
@@ -35,6 +51,7 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
   const paymentCancelled = searchParams.payment === "cancelled";
   const premiumStatus = report.premiumSearchStatus ?? "not_started";
   const completedOffers = premiumStatus === "completed" ? report.premiumOffers.slice(0, 3) : [];
+  const retryAvailable = premiumStatus === "failed" && completedOffers.length === 0 && canRetryPremiumSearch(report.premiumSearchError);
 
   if (paymentReturning && !unlocked) {
     return (
@@ -87,13 +104,27 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
   if (premiumStatus === "failed") {
     return (
       <section className="section">
-        <div className="max-w-2xl rounded-lg border border-red-100 bg-white p-8 shadow-soft">
-          <p className="text-sm font-semibold uppercase text-red-600">Premium search failed</p>
-          <h1 className="mt-3 text-4xl font-bold text-ink">We could not generate your premium report</h1>
+        <div className="max-w-2xl rounded-lg border border-amber-100 bg-white p-8 shadow-soft">
+          <p className="text-sm font-semibold uppercase text-amber-600">Premium search needs a broader pass</p>
+          <h1 className="mt-3 text-4xl font-bold text-ink">We could not find strong leads with those exact criteria</h1>
           <p className="mt-4 text-ink/70">
-            Your payment is recorded, but the live search could not complete. Please contact support with this report id so we can review it manually.
+            Your payment is recorded. Language compatibility and quality filters stayed strict, so the first search did not deliver a strong enough result.
           </p>
-          <p className="mt-4 rounded-md bg-red-50 p-3 text-sm text-red-700">Report id: {report.id}</p>
+          {retryAvailable ? (
+            <>
+              <p className="mt-4 text-ink/70">
+                You can broaden your search once and retry your premium search at no extra cost. We may broaden nearby locations or adjacent roles, but we will not broaden language compatibility or include weak filler.
+              </p>
+              <PremiumSearchRunner reportId={report.id} accessToken={report.accessToken} retry autoStart={false} />
+            </>
+          ) : (
+            <>
+              <p className="mt-4 text-ink/70">
+                This search cannot be retried automatically. Please contact support with this report id so we can review it manually.
+              </p>
+              <p className="mt-4 rounded-md bg-amber-50 p-3 text-sm text-amber-700">Report id: {report.id}</p>
+            </>
+          )}
         </div>
       </section>
     );

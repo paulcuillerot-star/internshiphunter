@@ -15,6 +15,7 @@ type OpenAITextResponse = {
 };
 
 type KeywordDefinition = { term: string; aliases: string[] };
+type WebInternshipSearchOptions = { retryMode?: boolean };
 
 const outputSchema = {
   type: "json_schema",
@@ -168,7 +169,7 @@ function normalizeSearchText(value: string) {
 
 function includesPhrase(text: string, phrase: string) {
   const normalizedPhrase = normalizeSearchText(phrase).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|\\s)${normalizedPhrase}(\\s|$)`).test(text);
+  return new RegExp(`(^|\s)${normalizedPhrase}(\s|$)`).test(text);
 }
 
 function extractMatchingTerms(text: string, definitions: KeywordDefinition[]) {
@@ -232,7 +233,7 @@ function cleanQuery(query: string) {
   return query.replace(/\s+/g, " ").trim();
 }
 
-export function buildSearchQueries(profile: CandidateProfile) {
+export function buildSearchQueries(profile: CandidateProfile, options: WebInternshipSearchOptions = {}) {
   const countries = profile.targetCountries.length ? profile.targetCountries : ["international"];
   const cities = profile.targetCities;
   const locations = cities.length ? cities : countries;
@@ -283,7 +284,15 @@ export function buildSearchQueries(profile: CandidateProfile) {
         `strategy internship ${locationKeyword} ${avoidedCompanySuffix}`
       ];
 
-  return Array.from(new Set([...idealDrivenQueries, ...targetedQueries, ...hiddenBoardQueries, ...conditionalQueries].map(cleanQuery).filter(Boolean))).slice(0, 18);
+  const retryQueries = options.retryMode
+    ? countries.flatMap((country) => [
+        `${roleTerms[0] ?? "business"} internship ${country} adjacent role ${avoidedCompanySuffix}`,
+        `${industryTerms[0] ?? "business"} trainee ${country} business school ${avoidedCompanySuffix}`,
+        `high signal internship ${country} ${atsKeyword} ${avoidedCompanySuffix}`
+      ])
+    : [];
+
+  return Array.from(new Set([...idealDrivenQueries, ...targetedQueries, ...hiddenBoardQueries, ...conditionalQueries, ...retryQueries].map(cleanQuery).filter(Boolean))).slice(0, 18);
 }
 
 function extractText(response: OpenAITextResponse) {
@@ -334,13 +343,15 @@ function normalizeOffers(offers: Array<Omit<ScoredInternshipOffer, "id">>): Scor
   }));
 }
 
-function captureOpenAIRequestFailure(error: unknown, profile: CandidateProfile, model: string, queryCount: number) {
+function captureOpenAIRequestFailure(error: unknown, profile: CandidateProfile, model: string, queryCount: number, options: WebInternshipSearchOptions = {}) {
   Sentry.withScope((scope) => {
     scope.setTag("feature", "premium-live-search");
     scope.setTag("model", model);
+    scope.setTag("retry", String(Boolean(options.retryMode)));
     scope.setContext("premium_live_search_openai_failure", {
       model,
       queryCount,
+      retry: Boolean(options.retryMode),
       targetCountriesCount: profile.targetCountries.length,
       targetCitiesCount: profile.targetCities.length,
       languagesCount: profile.languagesSpoken.length
@@ -349,18 +360,18 @@ function captureOpenAIRequestFailure(error: unknown, profile: CandidateProfile, 
   });
 }
 
-export async function webInternshipSearch(profile: CandidateProfile, cvText: string) {
+export async function webInternshipSearch(profile: CandidateProfile, cvText: string, options: WebInternshipSearchOptions = {}) {
   if (!hasOpenAIConfig()) {
     return {
       offers: mockOffers.filter((offer) => offer.isPremium).slice(0, 3),
-      querySummary: buildSearchQueries(profile).join("; "),
+      querySummary: buildSearchQueries(profile, options).join("; "),
       rawResponse: "Mock response because OPENAI_API_KEY is not configured."
     };
   }
 
   const researchPrompt = readPrompt("internship-web-search.md");
   const scoringPrompt = readPrompt("job-scoring.md");
-  const queries = buildSearchQueries(profile);
+  const queries = buildSearchQueries(profile, options);
   const model = process.env.OPENAI_MODEL || "gpt-5";
 
   let response: OpenAITextResponse;
@@ -386,6 +397,10 @@ export async function webInternshipSearch(profile: CandidateProfile, cvText: str
               candidateProfile: profile,
               cvText,
               suggestedQueries: queries,
+              retryMode: Boolean(options.retryMode),
+              retryGuidance: options.retryMode
+                ? "This is a retry after no strong leads or a recoverable search failure. Broaden softly on nearby locations, city hubs and adjacent roles. Do not broaden language compatibility, excluded companies, expired roles, LinkedIn URLs, generic careers pages, weak aggregators or low-quality filler. Prefer 1-2 strong compatible leads over weak matches."
+                : "",
               requiredOutput: "Return up to 3 premium internship leads. Prefer 2 strong language-compatible leads over 3 weak or incompatible leads. If no valid compatible opportunities exist, return an empty offers array."
             },
             null,
@@ -395,7 +410,7 @@ export async function webInternshipSearch(profile: CandidateProfile, cvText: str
       ]
     });
   } catch (error) {
-    captureOpenAIRequestFailure(error, profile, model, queries.length);
+    captureOpenAIRequestFailure(error, profile, model, queries.length, options);
     throw error;
   }
 
@@ -407,12 +422,14 @@ export async function webInternshipSearch(profile: CandidateProfile, cvText: str
     Sentry.withScope((scope) => {
       scope.setTag("feature", "premium-live-search");
       scope.setTag("model", model);
+      scope.setTag("retry", String(Boolean(options.retryMode)));
       scope.setContext("premium_live_search_empty", {
         desiredRoles: profile.desiredRoles,
         targetCountries: profile.targetCountries,
         targetCitiesCount: profile.targetCities.length,
         languagesSpoken: profile.languagesSpoken,
         queryCount: queries.length,
+        retry: Boolean(options.retryMode),
         model
       });
       Sentry.captureMessage("Premium live search returned zero valid opportunities", "warning");
