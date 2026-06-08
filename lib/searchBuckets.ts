@@ -65,8 +65,14 @@ function any(value: string, words: string[]) {
 
 function selectedCategories(profile: CandidateProfile): SearchCategory[] {
   return profile.desiredRoles
-    .map((role) => categoryByName[role.toLowerCase()] ?? categoryById[legacyCategoryAliases[role] ?? ""])
+    .map((role) => bucketsById[role]?.category ?? categoryByName[role.toLowerCase()] ?? categoryById[legacyCategoryAliases[role] ?? ""])
     .filter((item): item is SearchCategory => Boolean(item));
+}
+
+function selectedBuckets(profile: CandidateProfile): SearchBucket[] {
+  return profile.desiredRoles
+    .map((role) => bucketsById[role])
+    .filter((item): item is SearchBucket => Boolean(item));
 }
 
 export function detectSearchRegion(profile: CandidateProfile): SearchRegion {
@@ -151,7 +157,18 @@ export const searchBuckets: SearchBucket[] = [
 export const priorityBucketIds = searchBuckets.filter((bucketItem) => bucketItem.region === "Europe").map((bucketItem) => bucketItem.id);
 
 const bucketsById = Object.fromEntries(searchBuckets.map((item) => [item.id, item])) as Record<string, SearchBucket>;
+const activeFreeBucketIds = new Set(priorityBucketIds);
 const suffix: Record<"Europe" | "International outside Europe", string> = { Europe: "europe", "International outside Europe": "international" };
+
+export const freeTrackOptions = priorityBucketIds.map((bucketId) => {
+  const bucketItem = bucketsById[bucketId];
+  return { id: bucketItem.id, label: bucketItem.displayTitle };
+});
+
+export function getActiveFreeBucketById(bucketId: string) {
+  const bucketItem = bucketsById[bucketId];
+  return bucketItem && activeFreeBucketIds.has(bucketItem.id) ? bucketItem : undefined;
+}
 
 function bucketIdFor(categoryId: string, region: SearchRegion) {
   const normalizedRegion = region === "Europe" ? "Europe" : "International outside Europe";
@@ -163,8 +180,19 @@ function fallbackBucket(categoryId: string, region: SearchRegion) {
   return searchBuckets.find((item) => item.category.id === categoryId && item.region === normalizedRegion) ?? searchBuckets.find((item) => item.region === normalizedRegion) ?? bucketsById.marketing_brand_growth_europe;
 }
 
+export function matchSearchBucketFromBucketId(bucketId: string): MatchedSearchBucket | undefined {
+  const bucketItem = getActiveFreeBucketById(bucketId);
+  if (!bucketItem) return undefined;
+  return { category: bucketItem.category, region: "Europe", bucket: bucketItem, explanation: `${bucketItem.category.name} is the closest track based on your selected internship track and Europe free market. ${bucketItem.whyThisBucketFits}` };
+}
+
 export function matchSearchBucket(profile: CandidateProfile): MatchedSearchBucket {
   const region: SearchRegion = "Europe";
+  const exactBucket = selectedBuckets(profile).find((candidate) => activeFreeBucketIds.has(candidate.id));
+  if (exactBucket) {
+    return { category: exactBucket.category, region, bucket: exactBucket, explanation: `${exactBucket.category.name} is the closest track based on your selected internship track and Europe free market. ${exactBucket.whyThisBucketFits}` };
+  }
+
   const selected = selectedCategories(profile);
   const exact = selected.map((category) => bucketsById[bucketIdFor(category.id, region)]).find((candidate): candidate is SearchBucket => Boolean(candidate));
   const category = exact?.category ?? selected[0] ?? detectSearchCategory(profile);
