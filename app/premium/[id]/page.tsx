@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { OfferCard } from "@/components/OfferCard";
+import { PremiumCheckoutConfirmer } from "@/components/PremiumCheckoutConfirmer";
 import { PremiumSearchForm } from "@/components/PremiumSearchForm";
 import { PremiumSearchRunner } from "@/components/PremiumSearchRunner";
 import { getReportIfAuthorized } from "@/lib/store";
@@ -13,6 +14,7 @@ type PremiumSearchParams = {
   paid?: string;
   payment?: string;
   refresh?: string;
+  session_id?: string;
   token?: string;
 };
 
@@ -52,6 +54,10 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
   const premiumStatus = report.premiumSearchStatus ?? "not_started";
   const completedOffers = premiumStatus === "completed" ? report.premiumOffers.slice(0, 3) : [];
   const retryAvailable = premiumStatus === "failed" && completedOffers.length === 0 && canRetryPremiumSearch(report.premiumSearchError);
+
+  if (paymentReturning && !unlocked && searchParams.session_id) {
+    return <PremiumCheckoutConfirmer reportId={report.id} accessToken={report.accessToken} sessionId={searchParams.session_id} />;
+  }
 
   if (paymentReturning && !unlocked) {
     return (
