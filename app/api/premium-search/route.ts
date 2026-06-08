@@ -16,14 +16,18 @@ function retryWasUsed(errorMessage?: string) {
 
 function premiumErrorType(errorMessage?: string) {
   if (!errorMessage) return "none";
+  if (/payment required|unauthorized|forbidden|missing report|missing premium criteria|premium criteria are required|token|report access/i.test(errorMessage)) return "unrecoverable";
   if (/zero valid|No language-compatible|no strong leads/i.test(errorMessage)) return "zero_results";
   if (/OpenAI|web_search|JSON|parse|timeout|network|rate/i.test(errorMessage)) return "recoverable_search_error";
   return "technical_error";
 }
 
+function isClearlyUnrecoverablePremiumError(errorMessage?: string) {
+  return premiumErrorType(errorMessage) === "unrecoverable";
+}
+
 function canRetryPremiumSearch(report: InternshipSearchReport) {
-  const errorType = premiumErrorType(report.premiumSearchError);
-  return !retryWasUsed(report.premiumSearchError) && (errorType === "zero_results" || errorType === "recoverable_search_error");
+  return report.premiumOffers.length === 0 && !retryWasUsed(report.premiumSearchError) && !isClearlyUnrecoverablePremiumError(report.premiumSearchError);
 }
 
 function sentryContext(report: InternshipSearchReport, premiumInputs?: PremiumSearchInputs, retry = false) {
@@ -131,7 +135,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (report.premiumOffers.length > 0 || !retryAvailable) {
+    if (!retryAvailable) {
       capturePremiumSearchMessage("Premium search retry blocked", report, premiumInputs, "warning", true);
       return NextResponse.json({ error: "Premium search retry is not available. Please contact support with this report id." }, { status: 409 });
     }
