@@ -79,6 +79,14 @@ Hard filters:
 - not a real internship, placement, graduate internship, trainee or student role
 - senior roles and full-time permanent roles that are not internships
 
+Premium source quality:
+- Premium results should not feel like generic job-board scraping.
+- Prefer direct company career pages and ATS application pages.
+- Do not return LinkedIn, Indeed, Glassdoor, Stage.fr, JobTeaser, Welcome to the Jungle, Talent.com, Jooble, SimplyHired, Monster or similar aggregators as final premium leads.
+- Aggregators can be used during research to discover the company, but the returned URL must be the direct company or ATS application link.
+- Acceptable final URLs include company career pages, Greenhouse, Lever, Workable, Teamtailor, SmartRecruiters, Ashby, Factorial, Workday, BambooHR, Recruitee, Personio and Homerun.
+- If only aggregators are found, return fewer offers or an empty array rather than pretending the result is high quality.
+
 Language compatibility:
 - If the job posting explicitly lists languages, obey those requirements.
 - If it does not list languages, infer likely language requirements from the language of the posting, country/city, company context and whether the posting is written in English.
