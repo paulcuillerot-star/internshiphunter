@@ -1,42 +1,53 @@
 import Link from "next/link";
-import { OfferCard } from "@/components/OfferCard";
 import { PricingCTA } from "@/components/PricingCTA";
-import { mockOffers } from "@/lib/mockData";
 
 const heroChips = [
-  "No more 47 open tabs",
-  "Weekly curated examples",
+  "No endless scrolling",
+  "Reviewed Europe match",
   "Built for business school students",
-  "Live search after unlock"
+  "3 curated leads after unlock"
 ];
 
 const steps = [
-  ["1", "Share your search", "Upload your CV and tell us the countries and roles you want. Only the essentials are required."],
-  ["2", "Get your internship track", "We match you to a clear business-school internship track and show 2 weekly cached examples."],
-  ["3", "Unlock live personalized search", "When you want a deeper search, premium unlocks 3 curated internship leads with exact, close or broadened matches clearly labelled."]
+  ["1", "Pick your track", "Choose the area you’re targeting: marketing, finance, sports, strategy, sales, startup, product/data, luxury and more."],
+  ["2", "Get one free match", "We show you one reviewed Europe opportunity from the cache for your selected track."],
+  ["3", "Unlock your 3 premium leads", "Add your locations, languages, timing and profile. We run a live search and return up to 3 curated leads."]
 ];
 
-const faqs = [
-  ["Does the free flow run live AI search?", "No. The free demo uses rule-based matching and cached weekly examples to keep the experience fast and cost-controlled."],
-  ["Do you scrape LinkedIn?", "No. LinkedIn scraping is intentionally not supported."],
-  ["Can it work without API keys?", "Yes. The MVP uses realistic mock data until OpenAI, Supabase and Stripe are configured."],
-  ["What happens after unlock?", "Premium uses your saved criteria to search for up to 3 curated leads. If your criteria are narrow, close alternatives may be included and clearly labelled."]
+const differences = [
+  ["No endless scrolling", "You don’t browse hundreds of irrelevant roles."],
+  ["No random backup applications", "The goal is to find internships you’d actually want to open."],
+  ["No fake perfect matches", "If we broaden a result, we tell you why."]
+];
+
+const tracks = [
+  "Sales, Business Development & Partnerships",
+  "Marketing, Brand & Growth",
+  "Strategy, Consulting & Project Management",
+  "Finance, Investment & M&A",
+  "Startup, Founder & Operations",
+  "Product, Tech Business & Data",
+  "Luxury, Retail, Consumer & E-commerce",
+  "Sports, Events, Entertainment & Hospitality"
 ];
 
 export default function HomePage() {
   return (
     <>
       <section className="bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.22),transparent_32%),linear-gradient(180deg,#ffffff_0%,#f0fdf4_52%,#f6f8f9_100%)]">
-        <div className="section grid gap-10 py-16 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+        <div className="section grid gap-10 py-16 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
           <div>
             <p className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-sm font-bold uppercase tracking-wide text-signal ring-1 ring-emerald-200">
               Internship Hunter
             </p>
-            <h1 className="mt-5 max-w-3xl text-4xl font-black tracking-tight text-ink sm:text-6xl">
-              Find internships that actually fit your profile.
+            <h1 className="mt-5 max-w-4xl text-4xl font-black tracking-tight text-ink sm:text-6xl">
+              Stop scrolling job boards. Get internships you actually want.
             </h1>
             <p className="mt-5 max-w-2xl text-lg leading-8 text-ink/70">
-              Share what you are looking for. We match you to an internship search track, show 2 weekly examples for free, and unlock 3 curated internship leads when you want a deeper personalized search.
+              Internship Hunter helps business school students find curated internship leads without spending hours on LinkedIn or applying to random backup plans.
+            </p>
+            <p className="mt-5 max-w-xl rounded-lg border border-emerald-200 bg-white/75 px-4 py-3 text-base font-black text-signal shadow-[0_18px_40px_rgba(16,185,129,0.14)]">
+              Spend 5 minutes here, not 5 hours on LinkedIn.
             </p>
             <div className="mt-6 flex flex-wrap gap-2">
               {heroChips.map((chip) => (
@@ -45,16 +56,41 @@ export default function HomePage() {
                 </span>
               ))}
             </div>
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
               <Link href="/apply" className="inline-flex items-center justify-center rounded-md bg-signal px-6 py-3 text-sm font-bold text-white shadow-[0_18px_38px_rgba(15,118,110,0.3)] transition hover:bg-emerald-700">
-                Find my track
+                Find my free match
               </Link>
-              <a href="#how" className="button-secondary">See how it works</a>
+              <span className="text-sm font-semibold text-ink/55">1 free Europe match. No account needed.</span>
             </div>
           </div>
-          <div className="rounded-xl bg-white/70 p-2 shadow-[0_26px_80px_rgba(16,24,32,0.13)] ring-1 ring-emerald-100">
-            <OfferCard offer={mockOffers[0]} reportId="report_demo" />
+
+          <div className="rounded-xl border border-emerald-100 bg-white/80 p-6 shadow-[0_26px_80px_rgba(16,24,32,0.13)]">
+            <p className="text-sm font-bold uppercase tracking-wide text-signal">Shortlist preview</p>
+            <h2 className="mt-3 text-3xl font-black text-ink">A list worth opening.</h2>
+            <div className="mt-6 grid gap-3">
+              {["Reviewed Europe match", "Curated lead with direct role context", "Close alternatives clearly labelled"].map((item) => (
+                <div key={item} className="rounded-lg border border-line bg-white px-4 py-3 text-sm font-bold text-ink shadow-soft">
+                  {item}
+                </div>
+              ))}
+            </div>
+            <p className="mt-5 text-sm leading-6 text-ink/65">
+              Not hundreds of links. Just enough signal to decide what is worth your time.
+            </p>
           </div>
+        </div>
+      </section>
+
+      <section className="section grid gap-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+        <div>
+          <p className="text-sm font-semibold uppercase text-signal">The problem</p>
+          <h2 className="mt-3 text-3xl font-black text-ink sm:text-4xl">Tired of applying to random backup plans?</h2>
+        </div>
+        <div className="rounded-lg border border-line bg-white p-6 shadow-soft">
+          <p className="text-lg leading-8 text-ink/75">
+            Most internship searches turn into hours of scrolling, saving links, comparing tabs and applying to roles you don’t even care about.
+          </p>
+          <p className="mt-4 text-xl font-black text-signal">Internship Hunter gives you a shortlist worth your time.</p>
         </div>
       </section>
 
@@ -71,33 +107,55 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="section grid gap-5 md:grid-cols-2">
-        <div className="rounded-lg border border-emerald-100 bg-white p-6 shadow-soft">
-          <p className="text-sm font-semibold uppercase text-signal">Free</p>
-          <h2 className="mt-2 text-3xl font-bold text-ink">Your matched track plus 2 examples</h2>
-          <p className="mt-3 text-sm leading-6 text-ink/70">A quick way to see which direction fits before paying for live personalized research.</p>
-          <Link href="/apply" className="mt-6 button-secondary">Get my free track</Link>
-        </div>
-        <PricingCTA />
-      </section>
-
       <section className="section">
-        <h2 className="text-3xl font-bold text-ink">FAQ</h2>
-        <div className="mt-6 divide-y divide-line rounded-lg border border-line bg-white">
-          {faqs.map(([question, answer]) => (
-            <div key={question} className="p-5">
-              <h3 className="font-semibold text-ink">{question}</h3>
-              <p className="mt-2 text-sm leading-6 text-ink/70">{answer}</p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase text-signal">Why it feels different</p>
+            <h2 className="mt-3 text-3xl font-black text-ink">Not another job board.</h2>
+          </div>
+          <p className="max-w-md text-sm leading-6 text-ink/60">Internship Hunter is built to reduce noise, not create another place to scroll.</p>
+        </div>
+        <div className="mt-8 grid gap-4 md:grid-cols-3">
+          {differences.map(([title, copy]) => (
+            <div key={title} className="rounded-lg border border-emerald-100 bg-white p-5 shadow-soft">
+              <h3 className="text-xl font-black text-ink">{title}</h3>
+              <p className="mt-3 text-sm leading-6 text-ink/70">{copy}</p>
             </div>
           ))}
         </div>
       </section>
 
+      <section className="section">
+        <p className="text-sm font-semibold uppercase text-signal">Tracks</p>
+        <h2 className="mt-3 text-3xl font-black text-ink">Choose the lane you actually want.</h2>
+        <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {tracks.map((track) => (
+            <div key={track} className="rounded-lg border border-line bg-white p-4 text-sm font-bold leading-6 text-ink shadow-soft">
+              {track}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="section grid gap-5 md:grid-cols-2">
+        <div className="rounded-lg border border-emerald-100 bg-white p-6 shadow-soft">
+          <p className="text-sm font-semibold uppercase text-signal">Start free</p>
+          <h2 className="mt-2 text-3xl font-bold text-ink">Start free. Upgrade only if the first match makes sense.</h2>
+          <div className="mt-5 grid gap-3 text-sm font-semibold text-ink/70">
+            <p className="rounded-md bg-mist px-4 py-3">Free: 1 reviewed Europe opportunity</p>
+            <p className="rounded-md bg-mist px-4 py-3">No account needed</p>
+            <p className="rounded-md bg-mist px-4 py-3">No LinkedIn doom scroll</p>
+          </div>
+          <Link href="/apply" className="mt-6 button-secondary">Get my free match</Link>
+        </div>
+        <PricingCTA />
+      </section>
+
       <section className="section pt-4">
         <div className="rounded-lg bg-gradient-to-br from-emerald-50 to-mist p-8 text-center ring-1 ring-emerald-100">
-          <h2 className="text-3xl font-bold text-ink">Find internships worth applying to.</h2>
-          <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-ink/70">Start with the free track. Upgrade later when you want 3 curated leads from a personalized live search.</p>
-          <Link href="/apply" className="mt-6 inline-flex items-center justify-center rounded-md bg-signal px-5 py-3 text-sm font-bold text-white shadow-soft transition hover:bg-emerald-700">Start free</Link>
+          <h2 className="text-3xl font-bold text-ink">Skip the backup-plan spiral.</h2>
+          <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-ink/70">Start with one reviewed Europe match. Upgrade only when you want a tighter shortlist.</p>
+          <Link href="/apply" className="mt-6 inline-flex items-center justify-center rounded-md bg-signal px-5 py-3 text-sm font-bold text-white shadow-soft transition hover:bg-emerald-700">Find my free match</Link>
         </div>
       </section>
     </>

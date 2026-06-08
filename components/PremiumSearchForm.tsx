@@ -4,8 +4,15 @@ import type { FormEvent } from "react";
 import { useState } from "react";
 import type { PremiumSearchInputs } from "@/lib/types";
 
+const fieldClass = "w-full rounded-2xl border border-line bg-white px-4 py-3 text-base text-ink outline-none transition placeholder:text-ink/35 focus:border-signal focus:ring-4 focus:ring-signal/10";
+const labelClass = "grid gap-2 text-sm font-bold text-ink";
+
 function joinList(items?: string[]) {
   return items?.join(", ") ?? "";
+}
+
+function combinedLocations(initialInputs?: PremiumSearchInputs) {
+  return Array.from(new Set([...(initialInputs?.targetCountries ?? []), ...(initialInputs?.targetCities ?? [])])).join(", ");
 }
 
 export function PremiumSearchForm({ reportId, accessToken, initialInputs, paymentCancelled = false }: { reportId: string; accessToken?: string; initialInputs?: PremiumSearchInputs; paymentCancelled?: boolean }) {
@@ -18,12 +25,13 @@ export function PremiumSearchForm({ reportId, accessToken, initialInputs, paymen
     setError("");
 
     const formData = new FormData(event.currentTarget);
+    const targetLocations = String(formData.get("targetLocations") ?? "");
     const payload = {
       reportId,
       token: accessToken,
       premiumInputs: {
-        targetCountries: String(formData.get("targetCountries") ?? ""),
-        targetCities: String(formData.get("targetCities") ?? ""),
+        targetCountries: targetLocations,
+        targetCities: targetLocations,
         languagesSpoken: String(formData.get("languagesSpoken") ?? ""),
         internshipStartDate: String(formData.get("internshipStartDate") ?? ""),
         internshipDuration: String(formData.get("internshipDuration") ?? ""),
@@ -51,49 +59,46 @@ export function PremiumSearchForm({ reportId, accessToken, initialInputs, paymen
   }
 
   return (
-    <form onSubmit={submit} className="mt-8 grid gap-5 rounded-lg border border-line bg-white p-6 shadow-soft">
-      {paymentCancelled ? <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-900">Payment was cancelled. Your premium criteria are saved; you can continue to payment when ready.</p> : null}
+    <form onSubmit={submit} className="mt-8 grid gap-6 rounded-2xl border border-emerald-100 bg-mist p-5 shadow-soft sm:p-6">
+      {paymentCancelled ? <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-900">Payment was cancelled. Your premium criteria are saved; you can continue when ready.</p> : null}
       {error ? <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
 
       <div>
-        <p className="text-sm font-semibold uppercase text-signal">Premium personalization</p>
-        <h2 className="mt-2 text-2xl font-bold text-ink">Tell us what the paid search should target</h2>
-        <p className="mt-2 text-sm leading-6 text-ink/70">Your email is already linked to the free report. For €5.90, these details are saved before payment and used once the secure Stripe confirmation arrives.</p>
+        <p className="text-sm font-semibold uppercase text-signal">Your search criteria</p>
+        <h2 className="mt-2 text-2xl font-black text-ink">Tell us what would be worth opening</h2>
+        <p className="mt-2 text-sm leading-6 text-ink/70">Your email is already linked to your free report.</p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <label className="grid gap-2 text-sm font-semibold text-ink">Target countries
-          <input name="targetCountries" className="input" defaultValue={joinList(initialInputs?.targetCountries)} placeholder="Switzerland, Netherlands, Germany" required />
+        <label className={labelClass}>Target countries / cities
+          <input name="targetLocations" className={fieldClass} defaultValue={combinedLocations(initialInputs)} placeholder="Switzerland, Geneva, Zurich, Amsterdam, Netherlands..." required />
         </label>
-        <label className="grid gap-2 text-sm font-semibold text-ink">Target cities
-          <input name="targetCities" className="input" defaultValue={joinList(initialInputs?.targetCities)} placeholder="Zurich, Amsterdam, Berlin" />
+        <label className={labelClass}>Languages spoken
+          <input name="languagesSpoken" className={fieldClass} defaultValue={joinList(initialInputs?.languagesSpoken)} placeholder="English, French, Spanish..." required />
         </label>
-        <label className="grid gap-2 text-sm font-semibold text-ink">Languages spoken
-          <input name="languagesSpoken" className="input" defaultValue={joinList(initialInputs?.languagesSpoken)} placeholder="English, French" required />
+        <label className={labelClass}>Internship start date
+          <input name="internshipStartDate" className={fieldClass} defaultValue={initialInputs?.internshipStartDate ?? ""} placeholder="September 2026, flexible" />
         </label>
-        <label className="grid gap-2 text-sm font-semibold text-ink">Internship start date
-          <input name="internshipStartDate" className="input" defaultValue={initialInputs?.internshipStartDate ?? ""} placeholder="September 2026, flexible" />
+        <label className={labelClass}>Internship duration
+          <input name="internshipDuration" className={fieldClass} defaultValue={initialInputs?.internshipDuration ?? ""} placeholder="4-6 months, flexible" />
         </label>
-        <label className="grid gap-2 text-sm font-semibold text-ink">Internship duration
-          <input name="internshipDuration" className="input" defaultValue={initialInputs?.internshipDuration ?? ""} placeholder="4-6 months" />
-        </label>
-        <label className="grid gap-2 text-sm font-semibold text-ink">Companies already applied to
-          <input name="companiesAlreadyAppliedTo" className="input" defaultValue={joinList(initialInputs?.companiesAlreadyAppliedTo)} placeholder="Company A, Company B" />
+        <label className={`${labelClass} md:col-span-2`}>Companies already applied to
+          <input name="companiesAlreadyAppliedTo" className={fieldClass} defaultValue={joinList(initialInputs?.companiesAlreadyAppliedTo)} placeholder="Company A, Company B, anything we should avoid repeating" />
         </label>
       </div>
 
-      <label className="grid gap-2 text-sm font-semibold text-ink">Profile / CV summary
-        <textarea name="profileSummary" className="input min-h-28" defaultValue={initialInputs?.profileSummary ?? ""} placeholder="Short summary of your background, school, experience, strengths and target role." />
+      <label className={labelClass}>Profile / CV summary
+        <textarea name="profileSummary" className={`${fieldClass} min-h-32`} defaultValue={initialInputs?.profileSummary ?? ""} placeholder="Your school, experience, strengths, target role and anything that makes your profile stand out." />
       </label>
-      <label className="grid gap-2 text-sm font-semibold text-ink">Ideal internship / dream role
-        <textarea name="idealInternshipDescription" className="input min-h-28" defaultValue={initialInputs?.idealInternshipDescription ?? ""} placeholder="What would make an opportunity genuinely exciting for you?" />
+      <label className={labelClass}>Ideal internship / dream role
+        <textarea name="idealInternshipDescription" className={`${fieldClass} min-h-32`} defaultValue={initialInputs?.idealInternshipDescription ?? ""} placeholder="What would make an internship genuinely exciting enough to open?" />
       </label>
-      <label className="grid gap-2 text-sm font-semibold text-ink">Things to avoid
-        <textarea name="thingsToAvoid" className="input min-h-24" defaultValue={initialInputs?.thingsToAvoid ?? ""} placeholder="Unpaid roles, specific companies, industries, cities, role types, senior roles..." />
+      <label className={labelClass}>Things to avoid
+        <textarea name="thingsToAvoid" className={`${fieldClass} min-h-28`} defaultValue={initialInputs?.thingsToAvoid ?? ""} placeholder="Unpaid roles, specific companies, industries, cities, senior roles, generic sales roles..." />
       </label>
 
       <button type="submit" disabled={loading} className="button-primary w-full sm:w-auto">
-        {loading ? "Saving and opening checkout..." : "Continue to payment (€5.90)"}
+        {loading ? "Saving and opening checkout..." : "Continue to payment — €5.90"}
       </button>
     </form>
   );

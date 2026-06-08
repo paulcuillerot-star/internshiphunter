@@ -6,16 +6,16 @@ export function PricingCTA({ reportId, accessToken }: { reportId?: string; acces
 
   return (
     <div className="rounded-lg border border-emerald-400/30 bg-ink p-6 text-white shadow-soft">
-      <p className="inline-flex rounded-full bg-emerald-400/15 px-3 py-1 text-xs font-bold uppercase tracking-wide text-emerald-200">Premium unlock</p>
-      <h3 className="mt-4 text-3xl font-bold">Unlock 3 curated internship leads</h3>
+      <p className="inline-flex rounded-full bg-emerald-400/15 px-3 py-1 text-xs font-bold uppercase tracking-wide text-emerald-200">Premium · €5.90</p>
+      <h3 className="mt-4 text-3xl font-bold">Want the 3 best leads for your profile?</h3>
       <p className="mt-3 text-sm leading-6 text-white/75">
-        For €5.90, unlock 3 curated internship leads matched to your profile, cities, languages and timing.
+        Tell us your locations, languages, timing and profile. Internship Hunter will run a live search for curated opportunities you’d actually want to open.
       </p>
       <p className="mt-3 text-sm leading-6 text-white/65">
-        If your criteria are narrow, we may include close alternatives and clearly explain what was broadened.
+        If your criteria are narrow, close alternatives may be included and clearly labelled.
       </p>
       <Link href={href} className="mt-5 inline-flex rounded-md bg-emerald-400 px-5 py-3 text-sm font-bold text-ink shadow-[0_16px_35px_rgba(52,211,153,0.28)] transition hover:bg-emerald-300">
-        Unlock for €5.90
+        Find my 3 premium leads
       </Link>
     </div>
   );
