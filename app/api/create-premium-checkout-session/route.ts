@@ -85,6 +85,8 @@ const countryAliases: Record<string, string> = {
   "émirats arabes unis": "United Arab Emirates"
 };
 
+const countryAliasKeys = Object.keys(countryAliases).sort((a, b) => b.length - a.length);
+
 function normalizeKey(value: string) {
   return value
     .trim()
@@ -121,19 +123,32 @@ function normalizeLanguages(value: string) {
   return unique(parts.map((part) => languageAliases[normalizeKey(part)] ?? titleCase(part)));
 }
 
+function splitTrailingCountry(value: string) {
+  const key = normalizeKey(value);
+
+  for (const countryKey of countryAliasKeys) {
+    const country = countryAliases[countryKey];
+    if (key === countryKey) {
+      return { country };
+    }
+
+    if (key.endsWith(` ${countryKey}`)) {
+      const city = titleCase(key.slice(0, -countryKey.length).trim());
+      if (city) {
+        return { city, country };
+      }
+    }
+  }
+
+  return null;
+}
+
 function normalizeLocationParts(...values: string[]) {
   const combined = values.filter(Boolean).join(",");
   const parts = splitList(combined).flatMap((part) => {
-    const key = normalizeKey(part);
-    const country = countryAliases[key];
-    if (country) return [country];
-
-    const words = key.split(" ");
-    const countryWordIndex = words.findIndex((word) => Boolean(countryAliases[word]));
-    if (countryWordIndex > 0) {
-      const city = titleCase(words.slice(0, countryWordIndex).join(" "));
-      return [city, countryAliases[words[countryWordIndex]]];
-    }
+    const split = splitTrailingCountry(part);
+    if (split?.city && split.country) return [split.city, split.country];
+    if (split?.country) return [split.country];
 
     return [titleCase(part)];
   });
