@@ -3,7 +3,7 @@
 import * as Sentry from "@sentry/nextjs";
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { internshipTrackLabels } from "@/lib/searchBuckets";
+import { freeTrackOptions } from "@/lib/searchBuckets";
 
 const premiumOptions = [
   "Upload your CV",
@@ -56,17 +56,17 @@ export default function ApplyPage() {
   const router = useRouter();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [selectedTrack, setSelectedTrack] = useState("");
+  const [selectedTrackId, setSelectedTrackId] = useState("");
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     setLoading(true);
     const data = new FormData(event.currentTarget);
-    data.set("desiredRoles", selectedTrack);
+    data.set("selectedTrackId", selectedTrackId);
     data.set("targetCountries", "Europe");
 
-    if (!data.get("email") || !selectedTrack) {
+    if (!data.get("email") || !selectedTrackId) {
       setLoading(false);
       setError("Email and one internship track are required.");
       return;
@@ -115,10 +115,10 @@ export default function ApplyPage() {
 
         <section className="grid gap-3">
           <RequiredLabel>Preferred internship track</RequiredLabel>
-          <input type="hidden" name="desiredRoles" value={selectedTrack} />
+          <input type="hidden" name="selectedTrackId" value={selectedTrackId} />
           <div className="grid gap-2 sm:grid-cols-2">
-            {internshipTrackLabels.map((track) => (
-              <TrackButton key={track} label={track} selected={selectedTrack === track} onClick={() => setSelectedTrack(track)} />
+            {freeTrackOptions.map((track) => (
+              <TrackButton key={track.id} label={track.label} selected={selectedTrackId === track.id} onClick={() => setSelectedTrackId(track.id)} />
             ))}
           </div>
         </section>
