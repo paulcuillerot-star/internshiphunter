@@ -164,7 +164,7 @@ export function PremiumSearchRunner({
         </button>
       ) : (
         <button type="button" onClick={() => void runSearch()} disabled={isRunning || isPolling} className="mt-6 inline-flex button-primary disabled:cursor-not-allowed disabled:opacity-60">
-          {isRunning || isPolling ? "Retrying..." : "Retry premium search"}
+          {isRunning || isPolling ? "Retrying..." : "Retry with broader criteria"}
         </button>
       )}
     </div>
