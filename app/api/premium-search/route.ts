@@ -110,13 +110,11 @@ export async function POST(request: Request) {
   }
 
   if (status === "completed" && report.premiumOffers.length > 0) {
-    capturePremiumSearchMessage("Premium search blocked because already completed", report, premiumInputs, "warning", retryRequested);
     return NextResponse.json({ status: "completed", offerCount: report.premiumOffers.length });
   }
 
   if (status !== "failed" && report.premiumOffers.length > 0) {
     await updateReportPremiumOffers(report.id, report.premiumOffers);
-    capturePremiumSearchMessage("Premium search treated stale offers as completed", { ...report, premiumSearchStatus: "completed" }, premiumInputs, "warning", retryRequested);
     return NextResponse.json({ status: "completed", offerCount: report.premiumOffers.length });
   }
 

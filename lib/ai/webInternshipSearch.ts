@@ -16,6 +16,7 @@ type OpenAITextResponse = {
 
 type KeywordDefinition = { term: string; aliases: string[] };
 type WebInternshipSearchOptions = { retryMode?: boolean };
+type ParseContext = { profile: CandidateProfile; queryCount: number; retry: boolean };
 
 const outputSchema = {
   type: "json_schema",
@@ -348,22 +349,160 @@ function assertWebSearchWasUsed(response: OpenAITextResponse) {
   }
 }
 
-function parseOffers(text: string) {
+function stripMarkdownFence(text: string) {
   const trimmed = text.trim();
-  const jsonText = trimmed.startsWith("```")
-    ? trimmed
-        .replace(/^```(?:json)?/i, "")
-        .replace(/```$/i, "")
-        .trim()
-    : trimmed;
+  if (!trimmed.startsWith("```")) return trimmed;
+  return trimmed
+    .replace(/^```(?:json)?/i, "")
+    .replace(/```$/i, "")
+    .trim();
+}
 
-  const parsed = JSON.parse(jsonText) as { offers?: Array<Omit<ScoredInternshipOffer, "id">> };
+function extractFirstJsonObject(text: string) {
+  const start = text.indexOf("{");
+  if (start === -1) return text;
 
-  if (!Array.isArray(parsed.offers)) {
-    throw new Error("OpenAI response did not include an offers array.");
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) continue;
+
+    if (char === "{") depth += 1;
+    if (char === "}") depth -= 1;
+    if (depth === 0) return text.slice(start, index + 1);
   }
 
-  return parsed.offers;
+  return text.slice(start);
+}
+
+function escapeControlCharacter(char: string) {
+  if (char === "\n") return "\\n";
+  if (char === "\r") return "\\r";
+  if (char === "\t") return "\\t";
+  return `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`;
+}
+
+function repairControlCharactersInJsonStrings(text: string) {
+  let repaired = "";
+  let inString = false;
+  let escaped = false;
+
+  for (const char of text) {
+    if (escaped) {
+      repaired += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      repaired += char;
+      escaped = true;
+      continue;
+    }
+
+    if (char === '"') {
+      repaired += char;
+      inString = !inString;
+      continue;
+    }
+
+    if (inString && char.charCodeAt(0) < 0x20) {
+      repaired += escapeControlCharacter(char);
+      continue;
+    }
+
+    repaired += char;
+  }
+
+  return repaired;
+}
+
+function sanitizedPreview(text: string) {
+  return text
+    .slice(0, 500)
+    .replace(/[\u0000-\u001f]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function captureJsonParseFailure(error: unknown, text: string, context: ParseContext) {
+  const message = error instanceof Error ? error.message : "Unknown JSON parse error";
+  Sentry.withScope((scope) => {
+    scope.setTag("feature", "premium-live-search");
+    scope.setTag("errorType", "json_parse_failed");
+    scope.setTag("retry", String(context.retry));
+    scope.setContext("premium_live_search_json_parse", {
+      errorMessage: message,
+      retry: context.retry,
+      queryCount: context.queryCount,
+      targetCountriesCount: context.profile.targetCountries.length,
+      targetCitiesCount: context.profile.targetCities.length,
+      languagesCount: context.profile.languagesSpoken.length,
+      responseLength: text.length,
+      responsePreview: sanitizedPreview(text)
+    });
+    Sentry.captureException(error);
+  });
+}
+
+function tryParseJsonObject(text: string) {
+  try {
+    return JSON.parse(text) as { offers?: Array<Omit<ScoredInternshipOffer, "id">> };
+  } catch {
+    const repaired = repairControlCharactersInJsonStrings(text);
+    if (repaired === text) throw new Error("JSON parse failed before repair.");
+    return JSON.parse(repaired) as { offers?: Array<Omit<ScoredInternshipOffer, "id">> };
+  }
+}
+
+function parseJsonObject(text: string) {
+  const stripped = stripMarkdownFence(text);
+  const candidates = Array.from(new Set([stripped, extractFirstJsonObject(stripped)]));
+  let lastError: unknown;
+
+  for (const candidate of candidates) {
+    try {
+      return tryParseJsonObject(candidate);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("JSON parse failed.");
+}
+
+function parseOffers(text: string, context: ParseContext) {
+  try {
+    const parsed = parseJsonObject(text) as { offers?: Array<Omit<ScoredInternshipOffer, "id">> };
+
+    if (!Array.isArray(parsed.offers)) {
+      throw new Error("OpenAI response did not include an offers array.");
+    }
+
+    return parsed.offers;
+  } catch (error) {
+    captureJsonParseFailure(error, text, context);
+    throw new Error("Premium search JSON parsing failed.");
+  }
 }
 
 function normalizeOffers(offers: Array<Omit<ScoredInternshipOffer, "id">>): ScoredInternshipOffer[] {
@@ -424,6 +563,10 @@ function captureOpenAIRequestFailure(error: unknown, profile: CandidateProfile, 
 
 export async function webInternshipSearch(profile: CandidateProfile, cvText: string, options: WebInternshipSearchOptions = {}) {
   if (!hasOpenAIConfig()) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("OPENAI_API_KEY is not configured in production.");
+    }
+
     return {
       offers: mockOffers.filter((offer) => offer.isPremium).slice(0, 3),
       querySummary: buildSearchQueries(profile, options).join("; "),
@@ -478,7 +621,7 @@ export async function webInternshipSearch(profile: CandidateProfile, cvText: str
 
   assertWebSearchWasUsed(response);
   const text = extractText(response);
-  const parsedOffers = normalizeOffers(parseOffers(text));
+  const parsedOffers = normalizeOffers(parseOffers(text, { profile, queryCount: queries.length, retry: Boolean(options.retryMode) }));
   const offers = filterPremiumSourceQuality(parsedOffers);
 
   if (parsedOffers.length > 0 && !offers.length) {

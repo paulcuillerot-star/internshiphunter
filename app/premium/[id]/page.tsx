@@ -49,7 +49,7 @@ function canRetryPremiumSearch(errorMessage?: string) {
   return !retryWasUsed(errorMessage) && !isClearlyUnrecoverablePremiumError(errorMessage);
 }
 
-function capturePaidMissingInputs(reportId: string, isPaid: boolean, premiumSearchStatus: string) {
+function capturePaidMissingInputs(reportId: string, isPaid: boolean, premiumSearchStatus: string, offerCount: number) {
   Sentry.withScope((scope) => {
     scope.setTag("feature", "premium-search");
     scope.setTag("reportId", reportId);
@@ -57,7 +57,9 @@ function capturePaidMissingInputs(reportId: string, isPaid: boolean, premiumSear
       reportId,
       isPaid,
       premiumSearchStatus,
-      hasPremiumInputs: false
+      hasPremiumInputs: false,
+      hasPremiumOffers: offerCount > 0,
+      offerCount
     });
     Sentry.captureMessage("Premium paid report missing premium inputs", "warning");
   });
@@ -99,7 +101,7 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
   }
 
   if (unlocked && !report.premiumInputs && !allowCriteriaRefill) {
-    capturePaidMissingInputs(report.id, Boolean(report.isPaid), premiumStatus);
+    capturePaidMissingInputs(report.id, Boolean(report.isPaid), premiumStatus, report.premiumOffers.length);
     return (
       <section className="section">
         <div className="max-w-2xl rounded-lg border border-amber-100 bg-white p-8 shadow-soft">
