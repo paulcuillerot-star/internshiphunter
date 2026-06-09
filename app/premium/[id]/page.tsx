@@ -7,6 +7,7 @@ import { PremiumSearchForm } from "@/components/PremiumSearchForm";
 import { PremiumSearchRunner } from "@/components/PremiumSearchRunner";
 import { getReportIfAuthorized } from "@/lib/store";
 import { getStripeClient } from "@/lib/stripe";
+import type { ScoredInternshipOffer } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -100,7 +101,7 @@ function captureSavedCriteriaNotUnlocked({
   });
 }
 
-function PremiumOffers({ reportId, offers }: { reportId: string; offers: Parameters<typeof OfferCard>[0]["offer"][] }) {
+function PremiumOffers({ reportId, offers }: { reportId: string; offers: ScoredInternshipOffer[] }) {
   return (
     <section className="section">
       <p className="text-sm font-semibold uppercase text-signal">Premium unlocked</p>
@@ -191,15 +192,17 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
   }
 
   if (report.premiumInputs && !unlocked) {
-    captureSavedCriteriaNotUnlocked({
-      reportId: report.id,
-      isPaid: Boolean(report.isPaid),
-      premiumSearchStatus: premiumStatus,
-      offerCount: report.premiumOffers.length,
-      hasPaidReturnParam: paymentReturning,
-      hasSessionId: Boolean(searchParams.session_id),
-      allowCriteriaRefill
-    });
+    if (!searchParams.session_id) {
+      captureSavedCriteriaNotUnlocked({
+        reportId: report.id,
+        isPaid: Boolean(report.isPaid),
+        premiumSearchStatus: premiumStatus,
+        offerCount: report.premiumOffers.length,
+        hasPaidReturnParam: paymentReturning,
+        hasSessionId: false,
+        allowCriteriaRefill
+      });
+    }
 
     return (
       <section className="section">
