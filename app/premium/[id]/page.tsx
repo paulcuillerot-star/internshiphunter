@@ -100,6 +100,42 @@ function captureSavedCriteriaNotUnlocked({
   });
 }
 
+function capturePremiumOffersWithoutUnlock({
+  reportId,
+  isPaid,
+  premiumSearchStatus,
+  offerCount,
+  hasPremiumInputs,
+  hasPaidReturnParam,
+  hasSessionId,
+  allowCriteriaRefill
+}: {
+  reportId: string;
+  isPaid: boolean;
+  premiumSearchStatus: string;
+  offerCount: number;
+  hasPremiumInputs: boolean;
+  hasPaidReturnParam: boolean;
+  hasSessionId: boolean;
+  allowCriteriaRefill: boolean;
+}) {
+  Sentry.withScope((scope) => {
+    scope.setTag("feature", "premium-search");
+    scope.setTag("reportId", reportId);
+    scope.setContext("premium_offers_without_unlock", {
+      reportId,
+      isPaid,
+      premiumSearchStatus,
+      offerCount,
+      hasPremiumInputs,
+      hasPaidReturnParam,
+      hasSessionId,
+      allowCriteriaRefill
+    });
+    Sentry.captureMessage("Premium offers exist but report is not unlocked", "warning");
+  });
+}
+
 function PremiumOffers({ reportId, offers }: { reportId: string; offers: ScoredInternshipOffer[] }) {
   return (
     <section className="section">
@@ -127,7 +163,20 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
   const completedOffers = report.premiumOffers.slice(0, 3);
   const retryAvailable = premiumStatus === "failed" && report.premiumOffers.length === 0 && canRetryPremiumSearch(report.premiumSearchError);
 
-  if (completedOffers.length > 0) {
+  if (completedOffers.length > 0 && !unlocked) {
+    capturePremiumOffersWithoutUnlock({
+      reportId: report.id,
+      isPaid: Boolean(report.isPaid),
+      premiumSearchStatus: premiumStatus,
+      offerCount: report.premiumOffers.length,
+      hasPremiumInputs: Boolean(report.premiumInputs),
+      hasPaidReturnParam: paymentReturning,
+      hasSessionId: Boolean(searchParams.session_id),
+      allowCriteriaRefill
+    });
+  }
+
+  if (unlocked && completedOffers.length > 0) {
     return <PremiumOffers reportId={report.id} offers={completedOffers} />;
   }
 
