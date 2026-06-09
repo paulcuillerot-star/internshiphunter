@@ -176,7 +176,7 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
     });
   }
 
-  if (unlocked && completedOffers.length > 0) {
+  if (unlocked && premiumStatus === "completed" && completedOffers.length > 0) {
     return <PremiumOffers reportId={report.id} offers={completedOffers} />;
   }
 
