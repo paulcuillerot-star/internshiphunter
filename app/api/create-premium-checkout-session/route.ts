@@ -202,6 +202,19 @@ function premiumUrl(siteUrl: string, reportId: string, token?: string) {
   return `${siteUrl}/premium/${reportId}?${params.toString()}`;
 }
 
+function getSiteUrl(request: Request) {
+  const origin = request.headers.get("origin");
+  if (origin) return origin;
+
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const forwardedProto = request.headers.get("x-forwarded-proto") ?? "https";
+  if (forwardedHost) return `${forwardedProto}://${forwardedHost}`;
+
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+
+  return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+}
+
 function capturePremiumCheckout(message: string, reportId: string | undefined, inputs: PremiumSearchInputs | undefined, level: "info" | "warning" | "error" = "info") {
   Sentry.withScope((scope) => {
     scope.setTag("feature", "premium-search");
@@ -230,7 +243,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized report access." }, { status: 403 });
   }
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  const siteUrl = getSiteUrl(request);
   const tokenParam = report.accessToken ? `token=${encodeURIComponent(report.accessToken)}` : "";
 
   if (report.isPaid) {
