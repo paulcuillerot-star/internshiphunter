@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/nextjs";
+import { unstable_noStore as noStore } from "next/cache";
 import { notFound } from "next/navigation";
 import { ContinuePremiumCheckoutButton } from "@/components/ContinuePremiumCheckoutButton";
 import { OfferCard } from "@/components/OfferCard";
@@ -10,6 +11,7 @@ import { getStripeClient } from "@/lib/stripe";
 import type { ScoredInternshipOffer } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 export const runtime = "nodejs";
 
 type PremiumSearchParams = {
@@ -166,6 +168,45 @@ function captureFailedPremiumReportWithOffers({
   });
 }
 
+function capturePremiumQuestionnaireRender({
+  reportId,
+  isPaid,
+  unlocked,
+  hasPremiumInputs,
+  premiumSearchStatus,
+  offerCount,
+  hasRefillParam,
+  hasPaidReturnParam,
+  hasSessionId
+}: {
+  reportId: string;
+  isPaid: boolean;
+  unlocked: boolean;
+  hasPremiumInputs: boolean;
+  premiumSearchStatus: string;
+  offerCount: number;
+  hasRefillParam: boolean;
+  hasPaidReturnParam: boolean;
+  hasSessionId: boolean;
+}) {
+  Sentry.withScope((scope) => {
+    scope.setTag("feature", "premium-search");
+    scope.setTag("reportId", reportId);
+    scope.setContext("premium_questionnaire_render", {
+      reportId,
+      isPaid,
+      unlocked,
+      hasPremiumInputs,
+      premiumSearchStatus,
+      offerCount,
+      hasRefillParam,
+      hasPaidReturnParam,
+      hasSessionId
+    });
+    Sentry.captureMessage("Premium questionnaire rendered", "warning");
+  });
+}
+
 function PremiumOffers({ reportId, offers }: { reportId: string; offers: ScoredInternshipOffer[] }) {
   return (
     <section className="section">
@@ -180,6 +221,8 @@ function PremiumOffers({ reportId, offers }: { reportId: string; offers: ScoredI
 }
 
 export default async function PremiumPage({ params, searchParams }: { params: { id: string }; searchParams: PremiumSearchParams }) {
+  noStore();
+
   const report = await getReportIfAuthorized(params.id, searchParams.token);
   if (!report) notFound();
 
@@ -235,6 +278,18 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
   }
 
   if (canShowCriteriaRefill) {
+    capturePremiumQuestionnaireRender({
+      reportId: report.id,
+      isPaid: Boolean(report.isPaid),
+      unlocked,
+      hasPremiumInputs: Boolean(report.premiumInputs),
+      premiumSearchStatus: premiumStatus,
+      offerCount: report.premiumOffers.length,
+      hasRefillParam: allowCriteriaRefill,
+      hasPaidReturnParam: paymentReturning,
+      hasSessionId: Boolean(searchParams.session_id)
+    });
+
     return (
       <section className="section">
         <div className="max-w-3xl">
@@ -253,6 +308,18 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
   }
 
   if (!report.premiumInputs && !unlocked && !paymentReturning) {
+    capturePremiumQuestionnaireRender({
+      reportId: report.id,
+      isPaid: Boolean(report.isPaid),
+      unlocked,
+      hasPremiumInputs: false,
+      premiumSearchStatus: premiumStatus,
+      offerCount: report.premiumOffers.length,
+      hasRefillParam: allowCriteriaRefill,
+      hasPaidReturnParam: paymentReturning,
+      hasSessionId: Boolean(searchParams.session_id)
+    });
+
     return (
       <section className="section">
         <div className="max-w-3xl">
