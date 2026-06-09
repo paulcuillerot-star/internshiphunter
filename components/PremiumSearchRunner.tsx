@@ -6,6 +6,14 @@ import type { PremiumSearchStatus } from "@/lib/types";
 
 type StatusResponse = { status?: PremiumSearchStatus; offerCount?: number; error?: string };
 
+function LoadingBar() {
+  return (
+    <div className="mt-6 overflow-hidden rounded-full bg-emerald-50 ring-1 ring-emerald-100">
+      <div className="h-2 w-1/3 animate-[pulse_1.2s_ease-in-out_infinite] rounded-full bg-signal shadow-[0_0_20px_rgba(16,185,129,0.35)]" />
+    </div>
+  );
+}
+
 export function PremiumSearchRunner({
   reportId,
   accessToken,
@@ -22,8 +30,9 @@ export function PremiumSearchRunner({
   const router = useRouter();
   const started = useRef(false);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const terminalNavigation = useRef(false);
   const [message, setMessage] = useState(
-    pollOnly ? "Your premium search is running. We are checking the status quietly." : retry ? "Ready to retry with broader criteria." : "Running your live search... this can take 30-60 seconds."
+    pollOnly ? "Searching live internship sources. This can take up to a minute." : retry ? "Ready to retry with broader criteria." : "Starting your live search..."
   );
   const [error, setError] = useState("");
   const [isRunning, setIsRunning] = useState(false);
@@ -38,6 +47,17 @@ export function PremiumSearchRunner({
 
   const navigateToCleanPremiumUrl = useCallback(() => {
     router.replace(cleanPremiumUrl());
+  }, [cleanPremiumUrl, router]);
+
+  const forceTerminalReload = useCallback(() => {
+    if (terminalNavigation.current) return;
+    terminalNavigation.current = true;
+    const cleanUrl = cleanPremiumUrl();
+    router.replace(cleanUrl);
+    router.refresh();
+    window.setTimeout(() => {
+      window.location.assign(cleanUrl);
+    }, 300);
   }, [cleanPremiumUrl, router]);
 
   const buildStatusUrl = useCallback(() => {
@@ -68,20 +88,20 @@ export function PremiumSearchRunner({
       setMessage("Premium search completed. Loading your leads...");
       setIsPolling(false);
       clearPoll();
-      navigateToCleanPremiumUrl();
+      forceTerminalReload();
       return;
     }
 
     if (result?.status === "failed") {
-      setMessage("Premium search finished with an issue. Loading the recovery options...");
+      setMessage("Premium search finished with an issue. Loading recovery options...");
       setIsPolling(false);
       clearPoll();
-      navigateToCleanPremiumUrl();
+      forceTerminalReload();
       return;
     }
 
     if (result?.status === "running") {
-      setMessage("Your premium search is running. This can take 30-60 seconds.");
+      setMessage("Searching live internship sources. This can take up to a minute.");
       return;
     }
 
@@ -89,13 +109,14 @@ export function PremiumSearchRunner({
       setMessage("Waiting for payment confirmation before starting the search.");
       setIsPolling(false);
       clearPoll();
-      navigateToCleanPremiumUrl();
+      forceTerminalReload();
     }
-  }, [buildStatusUrl, clearPoll, navigateToCleanPremiumUrl]);
+  }, [buildStatusUrl, clearPoll, forceTerminalReload]);
 
   const startPolling = useCallback(() => {
     if (pollTimer.current) return;
     setIsPolling(true);
+    setMessage("Searching live internship sources. This can take up to a minute.");
     void checkStatus();
     pollTimer.current = setInterval(() => {
       void checkStatus();
@@ -107,7 +128,7 @@ export function PremiumSearchRunner({
     started.current = true;
     setIsRunning(true);
     setError("");
-    setMessage(retry ? "Retrying with broader criteria... this can take 30-60 seconds." : "Starting your live search...");
+    setMessage("Starting your live search...");
 
     try {
       const response = await fetch("/api/premium-search", {
@@ -126,32 +147,32 @@ export function PremiumSearchRunner({
       if (result?.status === "completed") {
         setMessage("Premium search completed. Loading your leads...");
         setIsRunning(false);
-        navigateToCleanPremiumUrl();
+        forceTerminalReload();
         return;
       }
 
       if (result?.status === "failed") {
-        setMessage("Premium search finished with an issue. Loading the recovery options...");
+        setMessage("Premium search finished with an issue. Loading recovery options...");
         setIsRunning(false);
-        navigateToCleanPremiumUrl();
+        forceTerminalReload();
         return;
       }
 
       if (result?.status === "running") {
-        setMessage("Your premium search is running. We will check for the result automatically.");
+        setMessage("Searching live internship sources. This can take up to a minute.");
         setIsRunning(false);
         startPolling();
         return;
       }
 
-      setMessage("Premium search status updated. We will check for the result automatically.");
+      setMessage("Searching live internship sources. This can take up to a minute.");
       setIsRunning(false);
       startPolling();
     } catch {
       setError("The premium search could not start. Please contact support with this report id.");
       setIsRunning(false);
     }
-  }, [accessToken, navigateToCleanPremiumUrl, pollOnly, reportId, retry, startPolling]);
+  }, [accessToken, forceTerminalReload, pollOnly, reportId, retry, startPolling]);
 
   useEffect(() => {
     if (pollOnly) {
@@ -166,15 +187,19 @@ export function PremiumSearchRunner({
 
   useEffect(() => clearPoll, [clearPoll]);
 
+  const active = autoStart || pollOnly || isRunning || isPolling;
+
   return (
     <div className="mt-8 max-w-2xl rounded-lg border border-emerald-100 bg-white p-8 shadow-soft">
       <p className="text-sm font-semibold uppercase text-signal">Live search</p>
       <h1 className="mt-3 text-4xl font-bold text-ink">{retry ? "Retry your premium search" : pollOnly ? "Checking your premium search" : "Finding your premium leads"}</h1>
       <p className="mt-4 text-ink/70">{message}</p>
+      {active ? <LoadingBar /> : null}
+      {active ? <p className="mt-3 text-sm font-semibold text-ink/55">We are checking automatically. You can keep this page open.</p> : null}
       {error ? <p className="mt-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
       {autoStart || pollOnly ? (
-        <button type="button" onClick={navigateToCleanPremiumUrl} className="mt-6 inline-flex button-secondary">
-          Refresh status
+        <button type="button" onClick={navigateToCleanPremiumUrl} className="mt-6 inline-flex button-secondary text-sm">
+          Refresh status manually
         </button>
       ) : (
         <button type="button" onClick={() => void runSearch()} disabled={isRunning || isPolling} className="mt-6 inline-flex button-primary disabled:cursor-not-allowed disabled:opacity-60">
