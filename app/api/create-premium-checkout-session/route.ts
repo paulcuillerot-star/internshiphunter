@@ -233,16 +233,18 @@ export async function POST(request: Request) {
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
   const tokenParam = report.accessToken ? `token=${encodeURIComponent(report.accessToken)}` : "";
 
-  if (report.premiumOffers.length > 0 || report.premiumSearchStatus === "running" || report.premiumSearchStatus === "completed") {
-    return NextResponse.json({ url: premiumUrl(siteUrl, reportId, report.accessToken) });
-  }
-
   if (report.isPaid) {
     return NextResponse.json({ url: premiumUrl(siteUrl, reportId, report.accessToken) });
   }
 
   const submittedInputs = hasSubmittedInputValues(rawPremiumInputs) ? normalizeInputs(rawPremiumInputs ?? {}) : undefined;
-  const premiumInputs = submittedInputs && hasUsableInputs(submittedInputs) ? submittedInputs : report.premiumInputs;
+
+  if (submittedInputs && !hasUsableInputs(submittedInputs)) {
+    capturePremiumCheckout("Premium inputs validation failed", reportId, submittedInputs, "warning");
+    return NextResponse.json({ error: "Please add at least one target location and one language." }, { status: 400 });
+  }
+
+  const premiumInputs = submittedInputs ?? report.premiumInputs;
 
   if (!premiumInputs || !hasUsableInputs(premiumInputs)) {
     capturePremiumCheckout("Premium inputs validation failed", reportId, submittedInputs, "warning");
@@ -250,7 +252,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    if (submittedInputs && premiumInputs === submittedInputs) {
+    if (submittedInputs) {
       await updateReportPremiumInputs(reportId, premiumInputs);
       capturePremiumCheckout("Premium inputs saved", reportId, premiumInputs);
     } else {
