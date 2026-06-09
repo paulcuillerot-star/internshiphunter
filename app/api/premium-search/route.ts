@@ -11,6 +11,7 @@ export const runtime = "nodejs";
 const retryUsedMarker = "[retry-used]";
 const verySoonDeadlineRisk = "Deadline is very soon; apply immediately.";
 const missingDeadlineRisk = "Deadline not listed; verify before applying.";
+const contentUnverifiedRisk = "Could not fully verify page content; verify before applying.";
 const linkValidationTimeoutMs = 8_000;
 const stalePostingYears = ["2019", "2020", "2021", "2022", "2023", "2024"];
 
@@ -132,6 +133,23 @@ function captureLinkRejection(reportId: string, offer: ScoredInternshipOffer, re
   });
 }
 
+function captureLinkWarning(reportId: string, offer: ScoredInternshipOffer, reason: string, httpStatus?: number) {
+  Sentry.withScope((scope) => {
+    scope.setTag("feature", "premium-search");
+    scope.setTag("reportId", reportId);
+    scope.setTag("reason", reason);
+    scope.setContext("premium_link_warning", {
+      reportId,
+      company: offer.company,
+      title: offer.title,
+      urlHost: urlHost(offer.url),
+      httpStatus,
+      reason
+    });
+    Sentry.captureMessage("Premium offer link content could not be fully verified", "warning");
+  });
+}
+
 function unique(items: string[]) {
   return Array.from(new Set(items.map((item) => item.trim()).filter(Boolean)));
 }
@@ -222,6 +240,11 @@ function daysUntilDeadline(deadlineDate: Date, today = new Date()) {
 
 function hostMatches(host: string, domains: string[]) {
   return domains.some((domain) => host === domain || host.endsWith(`.${domain}`));
+}
+
+function isTrustedDirectApplicationHost(url: string) {
+  const host = urlHost(url);
+  return hostMatches(host, directApplicationHosts);
 }
 
 function hasDirectApplicationUrl(url: string) {
@@ -364,10 +387,11 @@ async function validateOfferLink(offer: ScoredInternshipOffer, reportId: string)
     const status = page.status ?? 0;
     const finalUrl = page.finalUrl || offer.url;
     const textForChecks = `${finalUrl}\n${offer.title}\n${offer.company}\n${offer.deadline}\n${offer.publishedDate}\n${page.text}`;
+    const trustedDirectHost = isTrustedDirectApplicationHost(finalUrl) || isTrustedDirectApplicationHost(offer.url);
+    const reachable = status >= 200 && status < 400;
 
     if (status >= 400) {
-      const reason = status === 403 ? "unreachable_url" : "unreachable_url";
-      captureLinkRejection(reportId, offer, reason, status);
+      captureLinkRejection(reportId, offer, "unreachable_url", status);
       return undefined;
     }
 
@@ -387,6 +411,11 @@ async function validateOfferLink(offer: ScoredInternshipOffer, reportId: string)
     }
 
     if (!pageHasOfferEvidence(page.text, offer)) {
+      if (trustedDirectHost && reachable) {
+        captureLinkWarning(reportId, offer, "content_unverified_trusted_ats", status);
+        return withRisk(finalUrl === offer.url ? offer : { ...offer, url: finalUrl }, contentUnverifiedRisk);
+      }
+
       captureLinkRejection(reportId, offer, "content_mismatch", status);
       return undefined;
     }
