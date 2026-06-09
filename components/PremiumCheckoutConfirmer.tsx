@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 export function PremiumCheckoutConfirmer({ reportId, accessToken, sessionId }: { reportId: string; accessToken?: string; sessionId: string }) {
   const router = useRouter();
   const started = useRef(false);
+  const terminalNavigation = useRef(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("Stripe sent you back successfully. We are securely confirming your Checkout session.");
   const cleanPremiumUrl = useMemo(() => {
@@ -14,6 +15,16 @@ export function PremiumCheckoutConfirmer({ reportId, accessToken, sessionId }: {
     params.set("refresh", String(Date.now()));
     return `/premium/${reportId}?${params.toString()}`;
   }, [accessToken, reportId]);
+
+  const forceFreshPremiumPage = useCallback(() => {
+    if (terminalNavigation.current) return;
+    terminalNavigation.current = true;
+    router.replace(cleanPremiumUrl);
+    router.refresh();
+    window.setTimeout(() => {
+      window.location.assign(cleanPremiumUrl);
+    }, 300);
+  }, [cleanPremiumUrl, router]);
 
   useEffect(() => {
     if (started.current) return;
@@ -32,12 +43,12 @@ export function PremiumCheckoutConfirmer({ reportId, accessToken, sessionId }: {
         return;
       }
 
-      setMessage("Payment confirmed. Loading your premium search...");
-      router.replace(cleanPremiumUrl);
+      setMessage("Payment confirmed. Loading your premium search... We are refreshing your report with the latest payment status.");
+      forceFreshPremiumPage();
     }
 
     confirmSession().catch(() => setError("Could not confirm the Stripe Checkout session yet."));
-  }, [accessToken, cleanPremiumUrl, reportId, router, sessionId]);
+  }, [accessToken, cleanPremiumUrl, forceFreshPremiumPage, reportId, router, sessionId]);
 
   return (
     <section className="section">
