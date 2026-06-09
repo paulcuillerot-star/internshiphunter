@@ -6,20 +6,14 @@ import { createOpenAIResponse, hasOpenAIConfig } from "@/lib/openai";
 import { mockOffers } from "@/lib/mockData";
 import type { CandidateProfile, PremiumMatchType, ScoredInternshipOffer } from "@/lib/types";
 
-type OpenAITextResponse = {
-  output_text?: string;
-  output?: Array<{
-    type?: string;
-    content?: Array<{ type?: string; text?: string }>;
-  }>;
-};
-
+type OpenAITextResponse = { output_text?: string; output?: Array<{ type?: string; content?: Array<{ type?: string; text?: string }> }> };
 type KeywordDefinition = { term: string; aliases: string[] };
 type SearchPass = 1 | 2 | 3;
 type WebInternshipSearchOptions = { retryMode?: boolean; pass?: SearchPass };
 type ParseContext = { profile: CandidateProfile; queryCount: number; retry: boolean };
 type Rejection = { reason: string; title: string; company: string; url: string; matchType?: PremiumMatchType };
 type PassDiagnostic = { pass: SearchPass; parsedOfferCount: number; keptOfferCount: number; rejectionReasons: Record<string, number> };
+type ValidationResult = { offer: ScoredInternshipOffer; rejection?: string };
 
 const outputSchema = {
   type: "json_schema",
@@ -64,40 +58,13 @@ const outputSchema = {
             languageFit: { type: "string" },
             isPremium: { type: "boolean" }
           },
-          required: [
-            "title",
-            "company",
-            "location",
-            "country",
-            "city",
-            "url",
-            "source",
-            "deadline",
-            "publishedDate",
-            "descriptionSummary",
-            "requirementsSummary",
-            "compensation",
-            "languageRequirements",
-            "rawSourceSnippet",
-            "matchScore",
-            "qualityScore",
-            "probabilityOfInterview",
-            "whyItMatches",
-            "risks",
-            "applicationAngle",
-            "linkedinMessage",
-            "coverLetterHook",
-            "matchType",
-            "broadenedReason",
-            "languageFit",
-            "isPremium"
-          ]
+          required: ["title", "company", "location", "country", "city", "url", "source", "deadline", "publishedDate", "descriptionSummary", "requirementsSummary", "compensation", "languageRequirements", "rawSourceSnippet", "matchScore", "qualityScore", "probabilityOfInterview", "whyItMatches", "risks", "applicationAngle", "linkedinMessage", "coverLetterHook", "matchType", "broadenedReason", "languageFit", "isPremium"]
         }
       }
     },
     required: ["offers"]
   }
-};
+} as const;
 
 const roleKeywordDefinitions: KeywordDefinition[] = [
   { term: "business development", aliases: ["business development", "biz dev", "bd"] },
@@ -105,12 +72,9 @@ const roleKeywordDefinitions: KeywordDefinition[] = [
   { term: "partnerships", aliases: ["partnership", "partnerships", "partner management"] },
   { term: "sponsorship", aliases: ["sponsorship", "sponsorships", "commercial rights"] },
   { term: "event management", aliases: ["event management", "events", "event operations", "matchday", "production"] },
-  { term: "operations", aliases: ["operations", "ops", "project operations"] },
-  { term: "strategy", aliases: ["strategy", "strategic", "transformation"] },
   { term: "sales", aliases: ["sales", "account management", "client relationship"] },
-  { term: "brand activation", aliases: ["brand activation", "activation", "brand management"] },
+  { term: "strategy", aliases: ["strategy", "strategic", "transformation"] },
   { term: "commercial", aliases: ["commercial", "revenue", "business analyst"] },
-  { term: "consulting", aliases: ["consulting", "consultant", "analyst"] },
   { term: "finance", aliases: ["finance", "investment", "m&a", "private equity", "asset management"] },
   { term: "product", aliases: ["product", "product management", "product owner"] },
   { term: "data analytics", aliases: ["data", "analytics", "business intelligence", "dashboard", "bi"] },
@@ -118,7 +82,6 @@ const roleKeywordDefinitions: KeywordDefinition[] = [
 ];
 
 const industryKeywordDefinitions: KeywordDefinition[] = [
-  { term: "sports agency", aliases: ["sports agency", "sport agency"] },
   { term: "sports", aliases: ["sport", "sports", "football", "tennis", "club", "league", "federation", "tournament"] },
   { term: "event company", aliases: ["event company", "events company", "event agency"] },
   { term: "consumer brand", aliases: ["consumer brand", "consumer goods", "fmcg"] },
@@ -128,19 +91,12 @@ const industryKeywordDefinitions: KeywordDefinition[] = [
   { term: "tech", aliases: ["tech", "software", "saas", "digital"] }
 ];
 
-const seniorityKeywordDefinitions: KeywordDefinition[] = [
-  { term: "internship", aliases: ["internship", "intern", "stage"] },
-  { term: "trainee", aliases: ["trainee", "graduate trainee"] },
-  { term: "student placement", aliases: ["student placement", "placement", "working student"] }
-];
-
 const sportEventSignals = ["sport", "sports", "sponsorship", "partnership", "partnerships", "events", "event", "federation", "club", "agency", "tournament", "hospitality", "fan experience", "matchday", "football", "tennis"];
 const languageNames = ["english", "french", "spanish", "german", "dutch", "italian", "portuguese", "arabic", "chinese", "japanese", "korean"];
 const analyticsRoleSignals = ["data analyst", "business intelligence", "bi analyst", "analytics", "reporting analyst", "dashboard", "data science"];
 const financeRoleSignals = ["accounting", "audit", "finance", "investment", "m&a", "trading", "risk", "controlling"];
 const codingRoleSignals = ["software engineer", "developer", "coding", "python developer", "backend", "frontend", "full stack"];
 const marketingBdEventSignals = ["marketing", "brand", "growth", "business development", "sales", "partnership", "sponsorship", "event", "events", "commercial", "activation", "account management"];
-
 const weakAggregatorHosts = ["linkedin.com", "indeed.com", "glassdoor.com", "stage.fr", "jobteaser.com", "welcometothejungle.com", "talent.com", "jooble.org", "simplyhired.com", "monster.com", "google.com", "bing.com"];
 const directApplicationHosts = ["greenhouse.io", "lever.co", "workable.com", "teamtailor.com", "smartrecruiters.com", "ashbyhq.com", "factorialhr.com", "myworkdayjobs.com", "workdayjobs.com", "bamboohr.com", "recruitee.com", "personio.com", "homerun.co"];
 
@@ -153,18 +109,12 @@ function readPrompt(fileName: string) {
 }
 
 function normalizeSearchText(value: string) {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9&+\-/\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9&+\-/\s]/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function includesPhrase(text: string, phrase: string) {
-  const normalizedPhrase = normalizeSearchText(phrase).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|\s)${normalizedPhrase}(\s|$)`).test(text);
+  const normalizedPhrase = normalizeSearchText(phrase);
+  return text === normalizedPhrase || text.includes(normalizedPhrase);
 }
 
 function extractMatchingTerms(text: string, definitions: KeywordDefinition[]) {
@@ -183,16 +133,14 @@ function sanitizeCompanyForQuery(company: string) {
 }
 
 function buildAvoidedCompanySuffix(profile: CandidateProfile) {
-  const companies = profile.companiesAlreadyAppliedTo.map(sanitizeCompanyForQuery).filter(Boolean).slice(0, 5);
-  return companies.map((company) => `-"${company}"`).join(" ");
+  return profile.companiesAlreadyAppliedTo.map(sanitizeCompanyForQuery).filter(Boolean).slice(0, 5).map((company) => `-"${company}"`).join(" ");
 }
 
 function extractUsefulKeywords(profile: CandidateProfile) {
   const profileText = [profile.idealInternshipDescription, profile.desiredRoles.join(" "), profile.targetIndustries.join(" "), profile.cvText.slice(0, 1500)].join(" ");
   const roleTerms = removeAvoidedTerms(extractMatchingTerms(profileText, roleKeywordDefinitions), profile.thingsToAvoid).slice(0, 5);
   const industryTerms = removeAvoidedTerms(extractMatchingTerms(profileText, industryKeywordDefinitions), profile.thingsToAvoid).slice(0, 4);
-  const seniorityTerms = extractMatchingTerms(profileText, seniorityKeywordDefinitions).slice(0, 2);
-  return { roleTerms, industryTerms, seniorityTerms: seniorityTerms.length ? seniorityTerms : ["internship"] };
+  return { roleTerms, industryTerms, seniorityTerms: ["internship"] };
 }
 
 function isSportEventRelated(profile: CandidateProfile, keywords: ReturnType<typeof extractUsefulKeywords>) {
@@ -204,14 +152,6 @@ function cleanQuery(query: string) {
   return query.replace(/\s+/g, " ").trim();
 }
 
-function nearbyHubQueries(countryOrCity: string, role: string, avoidedCompanySuffix: string) {
-  return [
-    `${role} internship ${countryOrCity} direct application ${avoidedCompanySuffix}`,
-    `${role} trainee ${countryOrCity} business school ${avoidedCompanySuffix}`,
-    `${role} graduate internship ${countryOrCity} careers ${avoidedCompanySuffix}`
-  ];
-}
-
 export function buildSearchQueries(profile: CandidateProfile, options: WebInternshipSearchOptions = {}) {
   const pass = options.pass ?? 1;
   const countries = profile.targetCountries.length ? profile.targetCountries : ["international"];
@@ -220,30 +160,21 @@ export function buildSearchQueries(profile: CandidateProfile, options: WebIntern
   const keywords = extractUsefulKeywords(profile);
   const roleTerms = keywords.roleTerms.length ? keywords.roleTerms : profile.desiredRoles.length ? profile.desiredRoles.slice(0, 3) : ["business development", "marketing"];
   const industryTerms = keywords.industryTerms.length ? keywords.industryTerms : profile.targetIndustries.length ? profile.targetIndustries.slice(0, 2) : ["business"];
-  const seniority = keywords.seniorityTerms[0] ?? "internship";
-  const avoidedCompanySuffix = buildAvoidedCompanySuffix(profile);
-  const hasSportEventIntent = isSportEventRelated(profile, keywords);
   const locationKeyword = locations[0] ?? countries[0];
   const atsKeyword = [...roleTerms, ...industryTerms].slice(0, 3).join(" ") || "business internship";
+  const avoidedCompanySuffix = buildAvoidedCompanySuffix(profile);
+  const hasSportEventIntent = isSportEventRelated(profile, keywords);
 
-  const exactQueries = locations.flatMap((location) => roleTerms.flatMap((role) => industryTerms.slice(0, 2).map((industry) => `${role} ${seniority} ${location} ${industry} ${avoidedCompanySuffix}`)));
-  const hiddenBoardQueries = [
-    `site:greenhouse.io internship ${atsKeyword} ${locationKeyword}`,
-    `site:lever.co internship ${atsKeyword} ${locationKeyword}`,
-    `site:workable.com internship ${atsKeyword} ${locationKeyword}`,
-    `site:teamtailor.com internship ${atsKeyword} ${locationKeyword}`,
-    `site:smartrecruiters.com internship ${atsKeyword} ${locationKeyword}`,
-    `site:jobs.ashbyhq.com internship ${atsKeyword} ${locationKeyword}`,
-    `site:myworkdayjobs.com internship ${atsKeyword} ${locationKeyword}`
-  ];
+  const exactQueries = locations.flatMap((location) => roleTerms.flatMap((role) => industryTerms.slice(0, 2).map((industry) => `${role} internship ${location} ${industry} ${avoidedCompanySuffix}`)));
+  const hiddenBoardQueries = ["greenhouse.io", "lever.co", "workable.com", "teamtailor.com", "smartrecruiters.com", "jobs.ashbyhq.com", "myworkdayjobs.com"].map((site) => `site:${site} internship ${atsKeyword} ${locationKeyword}`);
   const conditionalQueries = hasSportEventIntent
-    ? [`partnerships internship ${locationKeyword} sports ${avoidedCompanySuffix}`, `sponsorship intern ${locationKeyword} sports agency ${avoidedCompanySuffix}`, `event management internship ${locationKeyword} ${avoidedCompanySuffix}`, `brand activation internship ${locationKeyword} sports ${avoidedCompanySuffix}`, `commercial partnerships intern ${locationKeyword} ${avoidedCompanySuffix}`]
+    ? [`partnerships internship ${locationKeyword} sports ${avoidedCompanySuffix}`, `sponsorship intern ${locationKeyword} sports agency ${avoidedCompanySuffix}`, `event management internship ${locationKeyword} ${avoidedCompanySuffix}`, `brand activation internship ${locationKeyword} sports ${avoidedCompanySuffix}`]
     : [`marketing internship ${locationKeyword} ${avoidedCompanySuffix}`, `business development internship ${locationKeyword} ${avoidedCompanySuffix}`, `brand management internship ${locationKeyword} ${avoidedCompanySuffix}`, `commercial internship ${locationKeyword} ${avoidedCompanySuffix}`, `partnerships internship ${locationKeyword} ${avoidedCompanySuffix}`];
-  const broadenedQueries = pass >= 2 ? locations.flatMap((location) => nearbyHubQueries(location, roleTerms[0] ?? "business", avoidedCompanySuffix)) : [];
-  const controlledAdjacentQueries = pass >= 3 ? countries.flatMap((country) => [`high signal business school internship ${country} ${atsKeyword} ${avoidedCompanySuffix}`, `commercial marketing partnerships internship ${country} direct application ${avoidedCompanySuffix}`, `startup business operations internship ${country} ${atsKeyword} ${avoidedCompanySuffix}`]) : [];
-  const retryQueries = options.retryMode ? countries.flatMap((country) => [`${roleTerms[0] ?? "business"} internship ${country} adjacent role ${avoidedCompanySuffix}`, `${industryTerms[0] ?? "business"} trainee ${country} business school ${avoidedCompanySuffix}`, `high signal internship ${country} ${atsKeyword} ${avoidedCompanySuffix}`]) : [];
+  const broadenedQueries = pass >= 2 ? locations.flatMap((location) => [`${roleTerms[0] ?? "business"} internship ${location} direct application ${avoidedCompanySuffix}`, `${roleTerms[0] ?? "business"} trainee ${location} business school ${avoidedCompanySuffix}`]) : [];
+  const adjacentQueries = pass >= 3 ? countries.flatMap((country) => [`high signal business school internship ${country} ${atsKeyword} ${avoidedCompanySuffix}`, `commercial marketing partnerships internship ${country} direct application ${avoidedCompanySuffix}`, `startup business operations internship ${country} ${atsKeyword} ${avoidedCompanySuffix}`]) : [];
+  const retryQueries = options.retryMode ? countries.map((country) => `high signal internship ${country} ${atsKeyword} ${avoidedCompanySuffix}`) : [];
 
-  return Array.from(new Set([...exactQueries, ...hiddenBoardQueries, ...conditionalQueries, ...broadenedQueries, ...controlledAdjacentQueries, ...retryQueries].map(cleanQuery).filter(Boolean))).slice(0, 18);
+  return Array.from(new Set([...exactQueries, ...hiddenBoardQueries, ...conditionalQueries, ...broadenedQueries, ...adjacentQueries, ...retryQueries].map(cleanQuery).filter(Boolean))).slice(0, 18);
 }
 
 function extractText(response: OpenAITextResponse) {
@@ -252,8 +183,7 @@ function extractText(response: OpenAITextResponse) {
 }
 
 function assertWebSearchWasUsed(response: OpenAITextResponse) {
-  const usedWebSearch = response.output?.some((item) => item.type === "web_search_call");
-  if (!usedWebSearch) throw new Error("OpenAI response did not include a web_search_call.");
+  if (!response.output?.some((item) => item.type === "web_search_call")) throw new Error("OpenAI response did not include a web_search_call.");
 }
 
 function stripMarkdownFence(text: string) {
@@ -290,13 +220,6 @@ function extractFirstJsonObject(text: string) {
   return text.slice(start);
 }
 
-function escapeControlCharacter(char: string) {
-  if (char === "\n") return "\\n";
-  if (char === "\r") return "\\r";
-  if (char === "\t") return "\\t";
-  return `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`;
-}
-
 function repairControlCharactersInJsonStrings(text: string) {
   let repaired = "";
   let inString = false;
@@ -318,7 +241,7 @@ function repairControlCharactersInJsonStrings(text: string) {
       continue;
     }
     if (inString && char.charCodeAt(0) < 0x20) {
-      repaired += escapeControlCharacter(char);
+      repaired += char === "\n" ? "\\n" : char === "\r" ? "\\r" : char === "\t" ? "\\t" : `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`;
       continue;
     }
     repaired += char;
@@ -331,24 +254,13 @@ function sanitizedPreview(text: string) {
 }
 
 function captureJsonParseFailure(error: unknown, text: string, context: ParseContext) {
-  const message = error instanceof Error ? error.message : "Unknown JSON parse error";
   Sentry.withScope((scope) => {
     scope.setTag("feature", "premium-live-search");
     scope.setTag("errorType", "json_parse_failed");
     scope.setTag("retry", String(context.retry));
-    scope.setContext("premium_live_search_json_parse", { errorMessage: message, retry: context.retry, queryCount: context.queryCount, targetCountriesCount: context.profile.targetCountries.length, targetCitiesCount: context.profile.targetCities.length, languagesCount: context.profile.languagesSpoken.length, responseLength: text.length, responsePreview: sanitizedPreview(text) });
+    scope.setContext("premium_live_search_json_parse", { retry: context.retry, queryCount: context.queryCount, targetCountriesCount: context.profile.targetCountries.length, targetCitiesCount: context.profile.targetCities.length, languagesCount: context.profile.languagesSpoken.length, responseLength: text.length, responsePreview: sanitizedPreview(text) });
     Sentry.captureException(error);
   });
-}
-
-function tryParseJsonObject(text: string) {
-  try {
-    return JSON.parse(text) as { offers?: Array<Omit<ScoredInternshipOffer, "id">> };
-  } catch {
-    const repaired = repairControlCharactersInJsonStrings(text);
-    if (repaired === text) throw new Error("JSON parse failed before repair.");
-    return JSON.parse(repaired) as { offers?: Array<Omit<ScoredInternshipOffer, "id">> };
-  }
 }
 
 function parseJsonObject(text: string) {
@@ -357,9 +269,14 @@ function parseJsonObject(text: string) {
   let lastError: unknown;
   for (const candidate of candidates) {
     try {
-      return tryParseJsonObject(candidate);
+      return JSON.parse(candidate) as { offers?: Array<Omit<ScoredInternshipOffer, "id">> };
     } catch (error) {
       lastError = error;
+      try {
+        return JSON.parse(repairControlCharactersInJsonStrings(candidate)) as { offers?: Array<Omit<ScoredInternshipOffer, "id">> };
+      } catch (repairError) {
+        lastError = repairError;
+      }
     }
   }
   throw lastError instanceof Error ? lastError : new Error("JSON parse failed.");
@@ -367,7 +284,7 @@ function parseJsonObject(text: string) {
 
 function parseOffers(text: string, context: ParseContext) {
   try {
-    const parsed = parseJsonObject(text) as { offers?: Array<Omit<ScoredInternshipOffer, "id">> };
+    const parsed = parseJsonObject(text);
     if (!Array.isArray(parsed.offers)) throw new Error("OpenAI response did not include an offers array.");
     return parsed.offers;
   } catch (error) {
@@ -418,15 +335,13 @@ function offerText(offer: ScoredInternshipOffer) {
 function explicitRequiredLanguages(offer: ScoredInternshipOffer) {
   const text = offerText(offer);
   const listedLanguages = normalizeList(offer.languageRequirements);
-  const detected = languageNames.filter((language) => listedLanguages.includes(language) || new RegExp(`\\b(${language})\\b.{0,35}\\b(required|native|fluent|professional|mandatory|must|bilingual)\\b|\\b(required|native|fluent|professional|mandatory|must|bilingual)\\b.{0,35}\\b(${language})\\b`).test(text));
-  return Array.from(new Set(detected));
+  return languageNames.filter((language) => listedLanguages.includes(language) || (text.includes(language) && /(required|native|fluent|professional|mandatory|must|bilingual)/.test(text)));
 }
 
 function isLanguageCompatible(offer: ScoredInternshipOffer, profile: CandidateProfile) {
   const spoken = normalizeList(profile.languagesSpoken);
   if (!spoken.length) return { compatible: false, reason: "missing_candidate_languages" };
-  const required = explicitRequiredLanguages(offer);
-  const missing = required.filter((language) => !spoken.includes(language));
+  const missing = explicitRequiredLanguages(offer).filter((language) => !spoken.includes(language));
   if (missing.length) return { compatible: false, reason: `language_mismatch_${missing.join("_")}` };
   return { compatible: true, reason: "language_compatible" };
 }
@@ -435,8 +350,7 @@ function hasAvoidedSignal(offer: ScoredInternshipOffer, profile: CandidateProfil
   const avoid = normalizeSearchText(profile.thingsToAvoid);
   if (!avoid) return false;
   const text = offerText(offer);
-  const avoidTerms = avoid.split(/[,;\n]|\band\b|\bor\b/).map((item) => item.trim()).filter((item) => item.length > 2);
-  return avoidTerms.some((term) => includesPhrase(text, term) || text.includes(term));
+  return avoid.split(/[,;\n]|\band\b|\bor\b/).map((item) => item.trim()).filter((item) => item.length > 2).some((term) => includesPhrase(text, term) || text.includes(term));
 }
 
 function isAlreadyAppliedCompany(offer: ScoredInternshipOffer, profile: CandidateProfile) {
@@ -445,55 +359,28 @@ function isAlreadyAppliedCompany(offer: ScoredInternshipOffer, profile: Candidat
 }
 
 function hasPastDeadline(offer: ScoredInternshipOffer) {
-  const deadline = offer.deadline.trim();
-  if (!deadline || /not listed|unknown|rolling/i.test(deadline)) return false;
-  const timestamp = Date.parse(deadline);
+  if (!offer.deadline || /not listed|unknown|rolling/i.test(offer.deadline)) return false;
+  const timestamp = Date.parse(offer.deadline);
   return Number.isFinite(timestamp) && timestamp < Date.now() - 24 * 60 * 60 * 1000;
 }
 
 function violatesExplicitDuration(offer: ScoredInternshipOffer, profile: CandidateProfile) {
   const avoid = normalizeSearchText(profile.thingsToAvoid);
-  const duration = normalizeSearchText(profile.internshipDuration);
   const text = offerText(offer);
-  if ((avoid.includes("longer than 6 months") || duration.includes("4 6 months")) && /\b(12|18|24)\s*months?\b/.test(text)) return true;
-  return false;
-}
-
-function profileRoleIntent(profile: CandidateProfile) {
-  return normalizeSearchText([profile.desiredRoles.join(" "), profile.idealInternshipDescription, profile.cvText.slice(0, 1500)].join(" "));
+  return avoid.includes("longer than 6 months") && /\b(12|18|24)\s*months?\b/.test(text);
 }
 
 function isRoleCompatible(offer: ScoredInternshipOffer, profile: CandidateProfile) {
-  const intent = profileRoleIntent(profile);
+  const intent = normalizeSearchText([profile.desiredRoles.join(" "), profile.idealInternshipDescription, profile.cvText.slice(0, 1500)].join(" "));
   const text = offerText(offer);
   if (hasAvoidedSignal(offer, profile)) return { compatible: false, reason: "matches_things_to_avoid" };
   const wantsMarketingBdEvents = marketingBdEventSignals.some((signal) => includesPhrase(intent, signal));
-  const isAnalytics = analyticsRoleSignals.some((signal) => includesPhrase(text, signal));
-  const isFinance = financeRoleSignals.some((signal) => includesPhrase(text, signal));
-  const isCoding = codingRoleSignals.some((signal) => includesPhrase(text, signal));
-  if (wantsMarketingBdEvents && (isAnalytics || isFinance || isCoding) && !marketingBdEventSignals.some((signal) => includesPhrase(text, signal))) return { compatible: false, reason: "role_family_mismatch" };
+  const isOffFamily = [...analyticsRoleSignals, ...financeRoleSignals, ...codingRoleSignals].some((signal) => includesPhrase(text, signal));
+  if (wantsMarketingBdEvents && isOffFamily && !marketingBdEventSignals.some((signal) => includesPhrase(text, signal))) return { compatible: false, reason: "role_family_mismatch" };
   return { compatible: true, reason: "role_compatible" };
 }
 
-function isVeryStrongSingleOffer(offer: ScoredInternshipOffer) {
-  return (offer.matchType === "exact" || offer.matchType === "close") && offer.matchScore >= 85 && offer.qualityScore >= 80 && isDirectApplicationOffer(offer) && !isWeakAggregatorOffer(offer);
-}
-
-function calibrateOfferScores(offer: ScoredInternshipOffer, roleCompatible: boolean) {
-  const matchType = offer.matchType;
-  const cappedMatchScore = matchType === "broadened" || !roleCompatible ? Math.min(offer.matchScore, 78) : offer.matchScore;
-  const cappedQualityScore = isDirectApplicationOffer(offer) ? offer.qualityScore : Math.min(offer.qualityScore, 75);
-  return { ...offer, matchScore: Math.round(cappedMatchScore), qualityScore: Math.round(cappedQualityScore), isPremium: true };
-}
-
-function rejectionSummary(rejections: Rejection[]) {
-  return rejections.reduce<Record<string, number>>((summary, rejection) => {
-    summary[rejection.reason] = (summary[rejection.reason] ?? 0) + 1;
-    return summary;
-  }, {});
-}
-
-function validatePremiumOffer(offer: ScoredInternshipOffer, profile: CandidateProfile) {
+function validatePremiumOffer(offer: ScoredInternshipOffer, profile: CandidateProfile): ValidationResult {
   if (!offer.title || !offer.company) return { offer, rejection: "missing_title_or_company" };
   if (!offer.url || isWeakAggregatorOffer(offer) || !isDirectApplicationOffer(offer)) return { offer, rejection: "weak_or_non_direct_url" };
   if (hasPastDeadline(offer)) return { offer, rejection: "past_deadline" };
@@ -504,7 +391,8 @@ function validatePremiumOffer(offer: ScoredInternshipOffer, profile: CandidatePr
   const role = isRoleCompatible(offer, profile);
   if (!role.compatible) return { offer, rejection: role.reason };
   if ((offer.matchType === "exact" || offer.matchType === "close") && offer.matchScore < 70) return { offer, rejection: "low_match_score" };
-  return { offer: calibrateOfferScores(offer, true) };
+  const matchScore = offer.matchType === "broadened" ? Math.min(offer.matchScore, 78) : offer.matchScore;
+  return { offer: { ...offer, matchScore: Math.round(matchScore), qualityScore: Math.round(offer.qualityScore), isPremium: true } };
 }
 
 function normalizedUrlKey(offer: ScoredInternshipOffer) {
@@ -536,8 +424,16 @@ function dedupeOffers(offers: ScoredInternshipOffer[]) {
 
 function resultMeetsMinimumThreshold(offers: ScoredInternshipOffer[]) {
   if (offers.length >= 2) return true;
-  if (offers.length === 1) return isVeryStrongSingleOffer(offers[0]);
-  return false;
+  if (offers.length !== 1) return false;
+  const offer = offers[0];
+  return (offer.matchType === "exact" || offer.matchType === "close") && offer.matchScore >= 85 && offer.qualityScore >= 80 && isDirectApplicationOffer(offer) && !isWeakAggregatorOffer(offer);
+}
+
+function rejectionSummary(rejections: Rejection[]) {
+  return rejections.reduce<Record<string, number>>((summary, rejection) => {
+    summary[rejection.reason] = (summary[rejection.reason] ?? 0) + 1;
+    return summary;
+  }, {});
 }
 
 function captureOpenAIRequestFailure(error: unknown, profile: CandidateProfile, model: string, queryCount: number, options: WebInternshipSearchOptions = {}) {
@@ -564,25 +460,16 @@ async function runOpenAIPass(profile: CandidateProfile, cvText: string, model: s
         { role: "system", content: `${researchPrompt}\n\n${scoringPrompt}` },
         {
           role: "user",
-          content: JSON.stringify(
-            {
-              today: new Date().toISOString().slice(0, 10),
-              searchPass: pass,
-              candidateProfile: profile,
-              cvText,
-              suggestedQueries: queries,
-              retryMode: Boolean(options.retryMode),
-              passGuidance:
-                pass === 1
-                  ? "Pass 1: prioritize exact target roles and target cities/countries. Return only direct employer or ATS postings."
-                  : pass === 2
-                    ? "Pass 2: the first pass did not collect enough paid-quality leads. Broaden to same-country hubs and adjacent roles in the same career family. Keep language compatibility strict."
-                    : "Pass 3: final controlled broadening. Search nearby countries or strong hubs and adjacent business-school roles, but reject language-incompatible, role-incompatible, expired, LinkedIn, aggregator or filler results.",
-              requiredOutput: "Aim to return 3 paid-quality leads. If fewer than 3 exact matches exist, broaden gradually, but do not include language-incompatible or clearly role-incompatible filler."
-            },
-            null,
-            2
-          )
+          content: JSON.stringify({
+            today: new Date().toISOString().slice(0, 10),
+            searchPass: pass,
+            candidateProfile: profile,
+            cvText,
+            suggestedQueries: queries,
+            retryMode: Boolean(options.retryMode),
+            passGuidance: pass === 1 ? "Pass 1: exact target roles and target cities/countries." : pass === 2 ? "Pass 2: broaden to same-country hubs and adjacent roles in the same career family. Keep language strict." : "Pass 3: final controlled broadening. Still reject language-incompatible, role-incompatible, expired, LinkedIn, aggregator or filler results.",
+            requiredOutput: "Aim to return 3 paid-quality leads. If fewer than 3 exact matches exist, broaden gradually, but do not include language-incompatible or clearly role-incompatible filler."
+          }, null, 2)
         }
       ]
     });
@@ -598,11 +485,8 @@ async function runOpenAIPass(profile: CandidateProfile, cvText: string, model: s
   const kept: ScoredInternshipOffer[] = [];
   for (const offer of parsedOffers) {
     const result = validatePremiumOffer(offer, profile);
-    if (result.rejection) {
-      rejections.push({ reason: result.rejection, title: offer.title, company: offer.company, url: offer.url, matchType: offer.matchType });
-    } else {
-      kept.push(result.offer);
-    }
+    if (result.rejection) rejections.push({ reason: result.rejection, title: offer.title, company: offer.company, url: offer.url, matchType: offer.matchType });
+    else kept.push(result.offer);
   }
   return { pass, queries, rawResponse: text, parsedOfferCount: parsedOffers.length, kept, rejections };
 }
@@ -636,24 +520,16 @@ export async function webInternshipSearch(profile: CandidateProfile, cvText: str
     rawResponses.push(`Pass ${pass}:\n${result.rawResponse}`);
     querySummaries.push(`Pass ${pass}: ${result.queries.join("; ")}`);
     collected.push(...result.kept);
-    const deduped = dedupeOffers(collected);
+    const deduped = dedupeOffers(collected).slice(0, 3);
     collected.length = 0;
-    collected.push(...deduped.slice(0, 3));
+    collected.push(...deduped);
     diagnostics.push({ pass, parsedOfferCount: result.parsedOfferCount, keptOfferCount: result.kept.length, rejectionReasons: rejectionSummary(result.rejections) });
-
     if (collected.length >= 3 || (pass >= 2 && resultMeetsMinimumThreshold(collected))) break;
   }
 
   const offers = dedupeOffers(collected).slice(0, 3);
   captureMultiPassDiagnostics(profile, model, diagnostics, offers.length, options);
-
-  if (!offers.length) {
-    throw new Error("No language-compatible premium internship leads were found after multi-pass search. Please broaden the search criteria or retry manually.");
-  }
-
-  if (!resultMeetsMinimumThreshold(offers)) {
-    throw new Error("Premium search found only one weak or insufficiently compatible lead after multi-pass search.");
-  }
-
+  if (!offers.length) throw new Error("No language-compatible premium internship leads were found after multi-pass search. Please broaden the search criteria or retry manually.");
+  if (!resultMeetsMinimumThreshold(offers)) throw new Error("Premium search found only one weak or insufficiently compatible lead after multi-pass search.");
   return { offers, querySummary: querySummaries.join("\n"), rawResponse: rawResponses.join("\n\n---\n\n") };
 }
