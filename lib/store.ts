@@ -258,60 +258,42 @@ export async function saveWeeklyFreeUsage(email: string, weekKey: string, report
   const supabase = getSupabaseServerClient();
   if (!supabase) return;
   const { error } = await supabase.from("free_usage_limits").insert({ email: normalizeEmail(email), week_key: weekKey, report_id: reportId });
-  if (error && error.code !== "23505") throw error;
-}
-
-export async function saveCachedBucketOpportunities(items: CachedBucketOpportunity[]) {
-  const supabase = getSupabaseServerClient();
-  if (!supabase || !items.length) return 0;
-  const { error } = await supabase.from("cached_bucket_opportunities").insert(items.map((item) => toCachedOpportunityRow({ ...item, reviewStatus: item.reviewStatus ?? "pending" })));
   if (error) throw error;
-  return items.length;
 }
 
-export async function listCachedOpportunitiesForBucket(bucketId: string) {
+export async function listCachedOpportunities() {
   const supabase = getSupabaseServerClient();
   if (!supabase) return [];
-  const { data, error } = await supabase.from("cached_bucket_opportunities").select("*").eq("bucket_id", bucketId).order("quality_score", { ascending: false }).limit(20);
-  if (error) throw error;
+  const { data } = await supabase.from("cached_bucket_opportunities").select("*").order("created_at", { ascending: false });
   return (data ?? []).map((item) => mapCachedOpportunityRow(item));
 }
 
-export async function listCachedBucketOpportunities() {
+export async function upsertCachedOpportunities(items: CachedBucketOpportunity[]) {
   const supabase = getSupabaseServerClient();
-  if (!supabase) return [];
-  const { data, error } = await supabase.from("cached_bucket_opportunities").select("*").order("created_at", { ascending: false }).limit(100);
+  if (!supabase || !items.length) return;
+  const { error } = await supabase.from("cached_bucket_opportunities").upsert(items.map((item) => toCachedOpportunityRow(item)), { onConflict: "id" });
   if (error) throw error;
-  return (data ?? []).map((item) => mapCachedOpportunityRow(item));
 }
 
-export async function updateCachedOpportunityReviewStatus(id: string, status: CacheReviewStatus) {
+export async function updateCachedOpportunityReview(id: string, reviewStatus: CacheReviewStatus, reviewedBy?: string) {
   const supabase = getSupabaseServerClient();
   if (!supabase) return;
-  const now = new Date().toISOString();
-  const reviewed = status === "pending" ? { reviewed_at: null, reviewed_by: null } : { reviewed_at: now, reviewed_by: "admin" };
-  const { error } = await supabase.from("cached_bucket_opportunities").update({ review_status: status, ...reviewed, updated_at: now }).eq("id", id);
+  const { error } = await supabase.from("cached_bucket_opportunities").update({ review_status: reviewStatus, reviewed_by: reviewedBy ?? null, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", id);
   if (error) throw error;
+}
+
+export async function getApprovedCachedOpportunitiesForBucket(bucketId: string) {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) return [];
+  const { data } = await supabase.from("cached_bucket_opportunities").select("*").eq("bucket_id", bucketId).eq("review_status", "approved");
+  return (data ?? []).map((item) => mapCachedOpportunityRow(item)).filter((item) => !isExpired(item));
 }
 
 export async function getBestCachedOpportunityForProfile(profile: CandidateProfile, matchedSearch: MatchedSearchBucket) {
-  try {
-    const cached = (await listCachedOpportunitiesForBucket(matchedSearch.bucket.id)).filter((item) => item.reviewStatus === "approved" && !isExpired(item) && item.url);
-    const bestCached = cached.sort((a, b) => scoreCachedOpportunity(b, profile, matchedSearch) - scoreCachedOpportunity(a, profile, matchedSearch))[0];
-    return bestCached ?? bestOffer(matchedSearch.bucket.weeklyFreeOffers);
-  } catch {
-    return bestOffer(matchedSearch.bucket.weeklyFreeOffers);
-  }
-}
-
-export async function listReports() {
-  hydrate();
-  const supabase = getSupabaseServerClient();
-  if (supabase) {
-    const { data } = await supabase.from("search_reports").select("*").order("created_at", { ascending: false }).limit(50);
-    return (data ?? []).map((item) => mapReportRow(item));
-  }
-  return Array.from(reports.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const opportunities = await getApprovedCachedOpportunitiesForBucket(matchedSearch.bucket.id);
+  if (!opportunities.length) return undefined;
+  const ranked = opportunities.map((item) => ({ item, score: scoreCachedOpportunity(item, profile, matchedSearch) })).sort((a, b) => b.score - a.score);
+  return ranked[0]?.item;
 }
 
 export async function saveFeedback(item: OfferFeedback) {
@@ -361,12 +343,12 @@ export async function updateReportPremiumInputs(reportId: string, premiumInputs:
   const now = new Date().toISOString();
   const supabase = getSupabaseServerClient();
   if (supabase) {
-    const { error } = await supabase.from("search_reports").update({ premium_inputs: premiumInputs, premium_search_status: "pending_payment", premium_search_error: null, updated_at: now }).eq("id", reportId);
+    const { error } = await supabase.from("search_reports").update({ premium_inputs: premiumInputs, premium_offers: [], premium_search_status: "pending_payment", premium_search_error: null, premium_search_started_at: null, premium_search_completed_at: null, updated_at: now }).eq("id", reportId);
     if (error) throw error;
     return;
   }
   const report = reports.get(reportId) ?? createMockReportForId(reportId);
-  reports.set(reportId, { ...report, premiumInputs, premiumSearchStatus: "pending_payment", premiumSearchError: undefined, updatedAt: now });
+  reports.set(reportId, { ...report, premiumInputs, premiumOffers: [], premiumSearchStatus: "pending_payment", premiumSearchError: undefined, premiumSearchStartedAt: undefined, premiumSearchCompletedAt: undefined, updatedAt: now });
   persist();
 }
 
