@@ -187,6 +187,21 @@ function normalizeInputs(raw: Partial<RawPremiumInputs>): PremiumSearchInputs {
   };
 }
 
+function hasUsableInputs(inputs: PremiumSearchInputs) {
+  return (inputs.targetCountries.length > 0 || inputs.targetCities.length > 0) && inputs.languagesSpoken.length > 0;
+}
+
+function hasSubmittedInputValues(raw?: Partial<RawPremiumInputs>) {
+  return Boolean(raw && Object.values(raw).some((value) => String(value ?? "").trim().length > 0));
+}
+
+function premiumUrl(siteUrl: string, reportId: string, token?: string) {
+  const params = new URLSearchParams();
+  if (token) params.set("token", token);
+  params.set("refresh", String(Date.now()));
+  return `${siteUrl}/premium/${reportId}?${params.toString()}`;
+}
+
 function capturePremiumCheckout(message: string, reportId: string | undefined, inputs: PremiumSearchInputs | undefined, level: "info" | "warning" | "error" = "info") {
   Sentry.withScope((scope) => {
     scope.setTag("feature", "premium-search");
@@ -215,18 +230,33 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized report access." }, { status: 403 });
   }
 
-  const premiumInputs = normalizeInputs(rawPremiumInputs ?? {});
-  if ((!premiumInputs.targetCountries.length && !premiumInputs.targetCities.length) || !premiumInputs.languagesSpoken.length) {
-    capturePremiumCheckout("Premium inputs validation failed", reportId, premiumInputs, "warning");
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  const tokenParam = report.accessToken ? `token=${encodeURIComponent(report.accessToken)}` : "";
+
+  if (report.premiumOffers.length > 0 || report.premiumSearchStatus === "running" || report.premiumSearchStatus === "completed") {
+    return NextResponse.json({ url: premiumUrl(siteUrl, reportId, report.accessToken) });
+  }
+
+  if (report.isPaid) {
+    return NextResponse.json({ url: premiumUrl(siteUrl, reportId, report.accessToken) });
+  }
+
+  const submittedInputs = hasSubmittedInputValues(rawPremiumInputs) ? normalizeInputs(rawPremiumInputs ?? {}) : undefined;
+  const premiumInputs = submittedInputs && hasUsableInputs(submittedInputs) ? submittedInputs : report.premiumInputs;
+
+  if (!premiumInputs || !hasUsableInputs(premiumInputs)) {
+    capturePremiumCheckout("Premium inputs validation failed", reportId, submittedInputs, "warning");
     return NextResponse.json({ error: "Please add at least one target location and one language." }, { status: 400 });
   }
 
   try {
-    await updateReportPremiumInputs(reportId, premiumInputs);
-    capturePremiumCheckout("Premium inputs saved", reportId, premiumInputs);
+    if (submittedInputs && premiumInputs === submittedInputs) {
+      await updateReportPremiumInputs(reportId, premiumInputs);
+      capturePremiumCheckout("Premium inputs saved", reportId, premiumInputs);
+    } else {
+      capturePremiumCheckout("Saved premium inputs reused for checkout", reportId, premiumInputs);
+    }
 
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-    const tokenParam = report.accessToken ? `token=${encodeURIComponent(report.accessToken)}` : "";
     const paidQuery = [tokenParam, "paid=true", "session_id={CHECKOUT_SESSION_ID}"].filter(Boolean).join("&");
     const cancelQuery = [tokenParam, "payment=cancelled"].filter(Boolean).join("&");
     const stripe = getStripeClient();
