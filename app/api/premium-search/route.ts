@@ -3,12 +3,30 @@ import { NextResponse } from "next/server";
 import { webInternshipSearch } from "@/lib/ai/webInternshipSearch";
 import { getProfile, getReportIfAuthorized, updateReportPremiumOffers, updateReportPremiumSearchStatus } from "@/lib/store";
 import { getStripeClient } from "@/lib/stripe";
-import type { CandidateProfile, InternshipSearchReport, PremiumLanguage, PremiumSearchBrief, PremiumSearchInputs, PremiumSearchStatus } from "@/lib/types";
+import type { CandidateProfile, InternshipSearchReport, PremiumLanguage, PremiumSearchBrief, PremiumSearchInputs, PremiumSearchStatus, ScoredInternshipOffer } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const retryUsedMarker = "[retry-used]";
+const verySoonDeadlineRisk = "Deadline is very soon; apply immediately.";
+const missingDeadlineRisk = "Deadline not listed; verify before applying.";
+
+const directApplicationHosts = [
+  "greenhouse.io",
+  "lever.co",
+  "workable.com",
+  "teamtailor.com",
+  "smartrecruiters.com",
+  "ashbyhq.com",
+  "factorialhr.com",
+  "myworkdayjobs.com",
+  "workdayjobs.com",
+  "bamboohr.com",
+  "recruitee.com",
+  "personio.com",
+  "homerun.co"
+];
 
 function retryWasUsed(errorMessage?: string) {
   return Boolean(errorMessage?.includes(retryUsedMarker));
@@ -71,6 +89,22 @@ function capturePremiumSearchException(error: unknown, report: InternshipSearchR
   });
 }
 
+function captureDeadlineRejection(reportId: string, offer: ScoredInternshipOffer, reason: string) {
+  Sentry.withScope((scope) => {
+    scope.setTag("feature", "premium-search");
+    scope.setTag("reportId", reportId);
+    scope.setTag("reason", reason);
+    scope.setContext("premium_deadline_rejection", {
+      reportId,
+      company: offer.company,
+      title: offer.title,
+      deadline: offer.deadline,
+      reason
+    });
+    Sentry.captureMessage("Premium offer rejected for deadline quality", "warning");
+  });
+}
+
 function unique(items: string[]) {
   return Array.from(new Set(items.map((item) => item.trim()).filter(Boolean)));
 }
@@ -126,6 +160,97 @@ function mergePremiumProfile(profile: CandidateProfile, premiumInputs: PremiumSe
     cvText: premiumInputs.profileSummary || profile.cvText,
     premiumSearchBrief: searchBrief
   };
+}
+
+function startOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function deadlineLooksUnknown(deadline: string) {
+  return !deadline.trim() || /not listed|not specified|unknown|unclear|rolling|open until filled|as soon as possible/i.test(deadline);
+}
+
+function parseDeadline(deadline: string, today = new Date()) {
+  if (deadlineLooksUnknown(deadline)) return null;
+  if (/\btoday\b/i.test(deadline)) return startOfDay(today);
+  if (/\btomorrow\b/i.test(deadline)) {
+    const tomorrow = startOfDay(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return tomorrow;
+  }
+
+  const cleaned = deadline
+    .replace(/application deadline|apply by|deadline|closing date|closes|applications close|until/gi, " ")
+    .replace(/[|•]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const parsed = Date.parse(cleaned);
+  return Number.isNaN(parsed) ? null : startOfDay(new Date(parsed));
+}
+
+function daysUntilDeadline(deadlineDate: Date, today = new Date()) {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.round((deadlineDate.getTime() - startOfDay(today).getTime()) / msPerDay);
+}
+
+function hostMatches(host: string, domains: string[]) {
+  return domains.some((domain) => host === domain || host.endsWith(`.${domain}`));
+}
+
+function hasDirectApplicationUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace(/^www\./, "").toLowerCase();
+    return hostMatches(host, directApplicationHosts) || /careers?|jobs?|job-detail|positions?|openings?|vacancies?|internship|apply/i.test(url);
+  } catch {
+    return false;
+  }
+}
+
+function isLanguageCompatibleEnough(offer: ScoredInternshipOffer) {
+  return !/incompatible|not compatible|requires.+not spoken|candidate does not speak/i.test(`${offer.languageFit} ${offer.risks.join(" ")}`);
+}
+
+function isExceptionalTomorrowOffer(offer: ScoredInternshipOffer) {
+  return (
+    (offer.matchType === "exact" || offer.matchType === "close") &&
+    offer.matchScore >= 85 &&
+    offer.qualityScore >= 80 &&
+    hasDirectApplicationUrl(offer.url) &&
+    isLanguageCompatibleEnough(offer)
+  );
+}
+
+function withRisk(offer: ScoredInternshipOffer, risk: string): ScoredInternshipOffer {
+  return offer.risks.some((item) => item.toLowerCase() === risk.toLowerCase()) ? offer : { ...offer, risks: [...offer.risks, risk] };
+}
+
+function filterPremiumDeadlineQuality(offers: ScoredInternshipOffer[], reportId: string) {
+  return offers.flatMap((offer) => {
+    const deadline = offer.deadline?.trim() ?? "";
+    const parsedDeadline = parseDeadline(deadline);
+
+    if (!parsedDeadline) {
+      return [{ ...withRisk(offer, missingDeadlineRisk), deadline: deadline || "Deadline not listed" }];
+    }
+
+    const daysLeft = daysUntilDeadline(parsedDeadline);
+    if (daysLeft <= 0) {
+      captureDeadlineRejection(reportId, offer, "deadline_today_or_past");
+      return [];
+    }
+
+    if (daysLeft === 1) {
+      if (isExceptionalTomorrowOffer(offer)) {
+        return [withRisk(offer, verySoonDeadlineRisk)];
+      }
+
+      captureDeadlineRejection(reportId, offer, "deadline_tomorrow_not_exceptional");
+      return [];
+    }
+
+    return [offer];
+  });
 }
 
 export async function POST(request: Request) {
@@ -195,11 +320,11 @@ export async function POST(request: Request) {
 
     const profile = await getProfile(report.profileId);
     const premiumProfile = mergePremiumProfile(profile, premiumInputs);
-    const result = await webInternshipSearch(premiumProfile, premiumProfile.cvText, { retryMode: retryRequested, reportId: report.id });
-    const offers = result.offers.slice(0, 3).map((offer) => ({ ...offer, isPremium: true }));
+    const result = await webInternshipSearch(premiumProfile, premiumProfile.cvText, { retryMode: retryRequested });
+    const offers = filterPremiumDeadlineQuality(result.offers, report.id).slice(0, 3).map((offer) => ({ ...offer, isPremium: true }));
 
     if (!offers.length) {
-      throw new Error("Premium live search returned zero valid opportunities.");
+      throw new Error("Premium live search returned zero valid opportunities after deadline filtering.");
     }
 
     await updateReportPremiumOffers(report.id, offers);
