@@ -136,6 +136,36 @@ function capturePremiumOffersWithoutUnlock({
   });
 }
 
+function captureFailedPremiumReportWithOffers({
+  reportId,
+  isPaid,
+  premiumSearchStatus,
+  offerCount,
+  hasPremiumInputs,
+  hasRefillParam
+}: {
+  reportId: string;
+  isPaid: boolean;
+  premiumSearchStatus: string;
+  offerCount: number;
+  hasPremiumInputs: boolean;
+  hasRefillParam: boolean;
+}) {
+  Sentry.withScope((scope) => {
+    scope.setTag("feature", "premium-search");
+    scope.setTag("reportId", reportId);
+    scope.setContext("premium_failed_with_stale_offers", {
+      reportId,
+      isPaid,
+      premiumSearchStatus,
+      offerCount,
+      hasPremiumInputs,
+      hasRefillParam
+    });
+    Sentry.captureMessage("Premium failed report has stale premium offers", "warning");
+  });
+}
+
 function PremiumOffers({ reportId, offers }: { reportId: string; offers: ScoredInternshipOffer[] }) {
   return (
     <section className="section">
@@ -159,6 +189,7 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
   const paymentReturning = searchParams.paid === "true";
   const paymentCancelled = searchParams.payment === "cancelled";
   const allowCriteriaRefill = searchParams.refill === "true";
+  const canShowCriteriaRefill = allowCriteriaRefill && (!unlocked || !report.premiumInputs);
   const premiumStatus = report.premiumSearchStatus ?? "not_started";
   const completedOffers = report.premiumOffers.slice(0, 3);
   const retryAvailable = premiumStatus === "failed" && report.premiumOffers.length === 0 && canRetryPremiumSearch(report.premiumSearchError);
@@ -203,7 +234,7 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
     );
   }
 
-  if (allowCriteriaRefill) {
+  if (canShowCriteriaRefill) {
     return (
       <section className="section">
         <div className="max-w-3xl">
@@ -299,9 +330,11 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
       <section className="section">
         <div className="max-w-2xl rounded-lg border border-emerald-100 bg-white p-8 shadow-soft">
           <p className="text-sm font-semibold uppercase text-signal">Payment confirmation</p>
-          <h1 className="mt-3 text-4xl font-bold text-ink">Waiting for payment confirmation</h1>
+          <h1 className="mt-3 text-4xl font-bold text-ink">{unlocked ? "Payment is confirmed, but the search is still pending" : "Waiting for payment confirmation"}</h1>
           <p className="mt-4 text-ink/70">
-            Your premium criteria are saved. We will start the live search only after Stripe confirms the payment securely.
+            {unlocked
+              ? "Your payment is recorded, but the report status has not moved to ready yet. Refresh the status in a moment so the live search can continue."
+              : "Your premium criteria are saved. We will start the live search only after Stripe confirms the payment securely."}
           </p>
           <a href={refreshHref(report.id, report.accessToken)} className="mt-6 inline-flex button-primary">
             Refresh payment status
@@ -312,6 +345,17 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
   }
 
   if (premiumStatus === "failed") {
+    if (unlocked && report.premiumOffers.length > 0) {
+      captureFailedPremiumReportWithOffers({
+        reportId: report.id,
+        isPaid: Boolean(report.isPaid),
+        premiumSearchStatus: premiumStatus,
+        offerCount: report.premiumOffers.length,
+        hasPremiumInputs: Boolean(report.premiumInputs),
+        hasRefillParam: allowCriteriaRefill
+      });
+    }
+
     return (
       <section className="section">
         <div className="max-w-2xl rounded-lg border border-amber-100 bg-white p-8 shadow-soft">
@@ -320,6 +364,7 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
           <p className="mt-4 text-ink/70">
             Your payment is recorded. The first search was too narrow or did not find enough high-quality direct opportunities. You can retry once with broader criteria at no extra cost.
           </p>
+          <p className="mt-4 rounded-md bg-amber-50 p-3 text-sm text-amber-700">Report id: {report.id}</p>
           {retryAvailable ? (
             <>
               <p className="mt-4 text-ink/70">
@@ -328,12 +373,9 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
               <PremiumSearchRunner reportId={report.id} accessToken={report.accessToken} retry autoStart={false} />
             </>
           ) : (
-            <>
-              <p className="mt-4 text-ink/70">
-                This search cannot be retried automatically. Please contact support with this report id so we can review it manually.
-              </p>
-              <p className="mt-4 rounded-md bg-amber-50 p-3 text-sm text-amber-700">Report id: {report.id}</p>
-            </>
+            <p className="mt-4 text-ink/70">
+              This search cannot be retried automatically. Please contact support with this report id so we can review it manually.
+            </p>
           )}
         </div>
       </section>
