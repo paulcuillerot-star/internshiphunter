@@ -14,7 +14,8 @@ type OpenAITextResponse = {
   }>;
 };
 
-type WebInternshipSearchOptions = { retryMode?: boolean };
+type BroadeningStrategy = "broaden_locations" | "broaden_roles" | "relax_one_hard_filter" | "include_nearby_industries" | "broader_company_sources";
+type WebInternshipSearchOptions = { retryMode?: boolean; broadeningStrategy?: BroadeningStrategy };
 type ParseContext = { profile: CandidateProfile; queryCount: number; retry: boolean };
 
 const outputSchema = {
@@ -220,6 +221,63 @@ function isSportEventRelated(profile: CandidateProfile, searchBrief: PremiumSear
   return sportEventSignals.some((signal) => text.includes(normalizeSearchText(signal)));
 }
 
+function strategyQueries(strategy: BroadeningStrategy | undefined, roleTerms: string[], industryTerms: string[], locations: string[], avoidedCompanySuffix: string) {
+  const role = roleTerms[0] ?? "business";
+  const industry = industryTerms[0] ?? "business";
+  const location = locations[0] ?? "Europe";
+
+  if (strategy === "broaden_locations") {
+    return [
+      `${role} internship ${industry} nearby cities ${location} direct application ${avoidedCompanySuffix}`,
+      `${role} internship same country ${location} employer careers ${avoidedCompanySuffix}`,
+      `${role} intern regional hub ${location} ATS ${avoidedCompanySuffix}`
+    ];
+  }
+
+  if (strategy === "broaden_roles") {
+    return [
+      `adjacent commercial internship ${location} ${industry} direct application ${avoidedCompanySuffix}`,
+      `business development marketing partnerships internship ${location} ${avoidedCompanySuffix}`,
+      `project commercial operations internship ${location} ${industry} ${avoidedCompanySuffix}`
+    ];
+  }
+
+  if (strategy === "relax_one_hard_filter") {
+    return [
+      `${role} internship ${location} flexible criteria direct employer ${avoidedCompanySuffix}`,
+      `${role} intern ${industry} ${location} compatible language ${avoidedCompanySuffix}`,
+      `${role} trainee ${location} direct application ${avoidedCompanySuffix}`
+    ];
+  }
+
+  if (strategy === "include_nearby_industries") {
+    return [
+      `${role} internship adjacent industries ${location} direct application ${avoidedCompanySuffix}`,
+      `${role} internship consumer tech hospitality events ${location} ${avoidedCompanySuffix}`,
+      `${role} intern high growth company ${location} ${avoidedCompanySuffix}`
+    ];
+  }
+
+  if (strategy === "broader_company_sources") {
+    return [
+      `${role} internship site:greenhouse.io OR site:lever.co ${location} ${avoidedCompanySuffix}`,
+      `${role} internship site:teamtailor.com OR site:smartrecruiters.com ${location} ${avoidedCompanySuffix}`,
+      `${role} internship company careers direct application ${location} ${industry} ${avoidedCompanySuffix}`
+    ];
+  }
+
+  return [];
+}
+
+function retryStrategyInstruction(strategy?: BroadeningStrategy) {
+  if (strategy === "broaden_locations") return "Second search strategy: broaden locations only. Try nearby cities, same-country hubs and regional hubs. Keep role fit, language compatibility and excluded companies strict.";
+  if (strategy === "broaden_roles") return "Second search strategy: broaden roles only. Include adjacent commercial/business roles in the same career family. Keep location intent, language compatibility and excluded companies strict.";
+  if (strategy === "relax_one_hard_filter") return "Second search strategy: softly relax one hard filter if it is not language compatibility, excluded companies, expired roles or senior/full-time roles. Explain what was relaxed.";
+  if (strategy === "include_nearby_industries") return "Second search strategy: include nearby industries while keeping role fit and language compatibility strict.";
+  if (strategy === "broader_company_sources") return "Second search strategy: search broader direct employer and ATS sources. Do not return weak aggregators or generic job boards as final leads.";
+  return "This is a retry after no strong leads or a recoverable search failure. Broaden softly according to searchBrief.broadeningOrder, but keep language compatibility and hard filters strict.";
+}
+
 export function buildSearchQueries(profile: CandidateProfile, options: WebInternshipSearchOptions = {}) {
   const searchBrief = getSearchBrief(profile);
   const keywords = extractBriefKeywords(searchBrief);
@@ -268,9 +326,12 @@ export function buildSearchQueries(profile: CandidateProfile, options: WebIntern
       ];
 
   const retryQueries = options.retryMode
-    ? searchBrief.broadeningOrder.flatMap((broadening) =>
-        locations.slice(0, 3).map((location) => `${roleTerms[0] ?? "business"} internship ${location} ${broadening} ${industryTerms[0] ?? "business"} ${avoidedCompanySuffix}`)
-      )
+    ? [
+        ...strategyQueries(options.broadeningStrategy, roleTerms, industryTerms, locations, avoidedCompanySuffix),
+        ...searchBrief.broadeningOrder.flatMap((broadening) =>
+          locations.slice(0, 3).map((location) => `${roleTerms[0] ?? "business"} internship ${location} ${broadening} ${industryTerms[0] ?? "business"} ${avoidedCompanySuffix}`)
+        )
+      ]
     : [];
 
   return Array.from(new Set([...exactQueries, ...industryQueries, ...hiddenBoardQueries, ...conditionalQueries, ...retryQueries].map(cleanQuery).filter(Boolean))).slice(0, 18);
@@ -496,10 +557,12 @@ function captureOpenAIRequestFailure(error: unknown, profile: CandidateProfile, 
     scope.setTag("feature", "premium-live-search");
     scope.setTag("model", model);
     scope.setTag("retry", String(Boolean(options.retryMode)));
+    if (options.broadeningStrategy) scope.setTag("broadeningStrategy", options.broadeningStrategy);
     scope.setContext("premium_live_search_openai_failure", {
       model,
       queryCount,
       retry: Boolean(options.retryMode),
+      broadeningStrategy: options.broadeningStrategy,
       targetCountriesCount: profile.targetCountries.length,
       targetCitiesCount: profile.targetCities.length,
       languagesCount: profile.languagesSpoken.length,
@@ -554,12 +617,15 @@ export async function webInternshipSearch(profile: CandidateProfile, cvText: str
               cvText,
               suggestedQueries: queries,
               retryMode: Boolean(options.retryMode),
+              selectedBroadeningStrategy: options.broadeningStrategy ?? "none",
               hardFilterInstruction:
                 "Follow searchBrief.hardFilters strictly. Do not include roles matching those exclusions, companies already applied to, incompatible language requirements, expired postings, senior roles, full-time permanent roles, LinkedIn URLs, generic careers pages or weak aggregators.",
               broadeningInstruction:
-                "If exact matches are limited, broaden only according to searchBrief.broadeningOrder. Never broaden language compatibility. Explain every broadened result in broadenedReason.",
+                options.retryMode && options.broadeningStrategy
+                  ? retryStrategyInstruction(options.broadeningStrategy)
+                  : "If exact matches are limited, broaden only according to searchBrief.broadeningOrder. Never broaden language compatibility. Explain every broadened result in broadenedReason.",
               retryGuidance: options.retryMode
-                ? "This is a retry after no strong leads or a recoverable search failure. Broaden softly according to searchBrief.broadeningOrder, but keep language compatibility and hard filters strict. Prefer 1-2 strong compatible leads over weak matches."
+                ? `${retryStrategyInstruction(options.broadeningStrategy)} This is a user-controlled second search after no strong matches were found. Do not broaden everything at once.`
                 : "",
               requiredOutput:
                 "Return up to 3 paid-quality premium internship leads. Aim for 2-3 useful direct employer or ATS leads. If no valid compatible opportunities exist, return an empty offers array."
@@ -585,12 +651,14 @@ export async function webInternshipSearch(profile: CandidateProfile, cvText: str
       scope.setTag("feature", "premium-live-search");
       scope.setTag("model", model);
       scope.setTag("retry", String(Boolean(options.retryMode)));
+      if (options.broadeningStrategy) scope.setTag("broadeningStrategy", options.broadeningStrategy);
       scope.setContext("premium_live_search_source_quality", {
         parsedOfferCount: parsedOffers.length,
         keptOfferCount: offers.length,
         rejectedSources: parsedOffers.map((offer) => ({ source: offer.source, host: getHostname(offer.url) })).slice(0, 5),
         queryCount: queries.length,
         retry: Boolean(options.retryMode),
+        broadeningStrategy: options.broadeningStrategy,
         model
       });
       Sentry.captureMessage("Premium live search found only weak aggregator or job-board results", "warning");
@@ -603,6 +671,7 @@ export async function webInternshipSearch(profile: CandidateProfile, cvText: str
       scope.setTag("feature", "premium-live-search");
       scope.setTag("model", model);
       scope.setTag("retry", String(Boolean(options.retryMode)));
+      if (options.broadeningStrategy) scope.setTag("broadeningStrategy", options.broadeningStrategy);
       scope.setContext("premium_live_search_empty", {
         desiredRoles: profile.desiredRoles,
         targetCountriesCount: profile.targetCountries.length,
@@ -612,6 +681,7 @@ export async function webInternshipSearch(profile: CandidateProfile, cvText: str
         hardFiltersCount: searchBrief.hardFilters.length,
         queryCount: queries.length,
         retry: Boolean(options.retryMode),
+        broadeningStrategy: options.broadeningStrategy,
         model
       });
       Sentry.captureMessage("Premium live search returned zero valid opportunities", "warning");
