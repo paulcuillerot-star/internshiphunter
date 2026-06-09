@@ -11,7 +11,7 @@ const showTestPreset = process.env.NODE_ENV !== "production" || process.env.NEXT
 const defaultBroadeningOrder = [
   "Nearby cities",
   "Same role in broader industries",
-  "Adjacent commercial/business roles",
+  "Adjacent commercial roles",
   "Broader high-signal companies"
 ];
 
@@ -55,7 +55,7 @@ function broadeningOrderFromSelection(selection: string[]) {
   if (!selection.length) return defaultBroadeningOrder;
 
   const mapped = selection.map((item) => {
-    if (item === "Similar roles") return "Adjacent commercial/business roles";
+    if (item === "Similar roles") return "Adjacent commercial roles";
     if (item === "Similar industries") return "Same role in broader industries";
     if (item === "Recognized companies") return "Broader high-signal companies";
     return item;
