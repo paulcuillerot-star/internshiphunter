@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/nextjs";
 import { notFound } from "next/navigation";
 import { OfferCard } from "@/components/OfferCard";
 import { PremiumCheckoutConfirmer } from "@/components/PremiumCheckoutConfirmer";
@@ -14,6 +15,7 @@ type PremiumSearchParams = {
   paid?: string;
   payment?: string;
   refresh?: string;
+  refill?: string;
   session_id?: string;
   token?: string;
 };
@@ -22,6 +24,14 @@ function refreshHref(reportId: string, token?: string) {
   const params = new URLSearchParams();
   if (token) params.set("token", token);
   params.set("paid", "true");
+  params.set("refresh", String(Date.now()));
+  return `/premium/${reportId}?${params.toString()}`;
+}
+
+function refillHref(reportId: string, token?: string) {
+  const params = new URLSearchParams();
+  if (token) params.set("token", token);
+  params.set("refill", "true");
   params.set("refresh", String(Date.now()));
   return `/premium/${reportId}?${params.toString()}`;
 }
@@ -39,6 +49,20 @@ function canRetryPremiumSearch(errorMessage?: string) {
   return !retryWasUsed(errorMessage) && !isClearlyUnrecoverablePremiumError(errorMessage);
 }
 
+function capturePaidMissingInputs(reportId: string, isPaid: boolean, premiumSearchStatus: string) {
+  Sentry.withScope((scope) => {
+    scope.setTag("feature", "premium-search");
+    scope.setTag("reportId", reportId);
+    scope.setContext("premium_missing_inputs", {
+      reportId,
+      isPaid,
+      premiumSearchStatus,
+      hasPremiumInputs: false
+    });
+    Sentry.captureMessage("Premium paid report missing premium inputs", "warning");
+  });
+}
+
 export default async function PremiumPage({ params, searchParams }: { params: { id: string }; searchParams: PremiumSearchParams }) {
   const report = await getReportIfAuthorized(params.id, searchParams.token);
   if (!report) notFound();
@@ -48,8 +72,9 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
   const unlocked = report.isPaid || allowMockUnlock;
   const paymentReturning = searchParams.paid === "true";
   const paymentCancelled = searchParams.payment === "cancelled";
+  const allowCriteriaRefill = searchParams.refill === "true";
   const premiumStatus = report.premiumSearchStatus ?? "not_started";
-  const completedOffers = premiumStatus === "completed" ? report.premiumOffers.slice(0, 3) : [];
+  const completedOffers = premiumStatus !== "running" && premiumStatus !== "failed" ? report.premiumOffers.slice(0, 3) : [];
   const retryAvailable = premiumStatus === "failed" && report.premiumOffers.length === 0 && canRetryPremiumSearch(report.premiumSearchError);
 
   if (paymentReturning && !unlocked && searchParams.session_id) {
@@ -67,6 +92,25 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
           </p>
           <a href={refreshHref(report.id, report.accessToken)} className="mt-6 inline-flex button-primary">
             Refresh unlock status
+          </a>
+        </div>
+      </section>
+    );
+  }
+
+  if (unlocked && !report.premiumInputs && !allowCriteriaRefill) {
+    capturePaidMissingInputs(report.id, Boolean(report.isPaid), premiumStatus);
+    return (
+      <section className="section">
+        <div className="max-w-2xl rounded-lg border border-amber-100 bg-white p-8 shadow-soft">
+          <p className="text-sm font-semibold uppercase text-amber-600">Premium criteria missing</p>
+          <h1 className="mt-3 text-4xl font-bold text-ink">Payment confirmed, but your criteria are missing</h1>
+          <p className="mt-4 text-ink/70">
+            Your payment is recorded, but we could not find the premium criteria linked to this report. Please refill the form once or contact support with this report id.
+          </p>
+          <p className="mt-4 rounded-md bg-amber-50 p-3 text-sm text-amber-700">Report id: {report.id}</p>
+          <a href={refillHref(report.id, report.accessToken)} className="mt-6 inline-flex button-primary">
+            Refill the criteria
           </a>
         </div>
       </section>
@@ -108,7 +152,7 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
     );
   }
 
-  if (premiumStatus === "completed" && completedOffers.length > 0) {
+  if (completedOffers.length > 0) {
     return (
       <section className="section">
         <p className="text-sm font-semibold uppercase text-signal">Premium unlocked</p>

@@ -149,6 +149,37 @@ const sportEventSignals = [
   "tennis"
 ];
 
+const weakAggregatorHosts = [
+  "linkedin.com",
+  "indeed.com",
+  "glassdoor.com",
+  "stage.fr",
+  "jobteaser.com",
+  "welcometothejungle.com",
+  "talent.com",
+  "jooble.org",
+  "simplyhired.com",
+  "monster.com",
+  "google.com",
+  "bing.com"
+];
+
+const directApplicationHosts = [
+  "greenhouse.io",
+  "lever.co",
+  "workable.com",
+  "teamtailor.com",
+  "smartrecruiters.com",
+  "ashbyhq.com",
+  "factorialhr.com",
+  "myworkdayjobs.com",
+  "workdayjobs.com",
+  "bamboohr.com",
+  "recruitee.com",
+  "personio.com",
+  "homerun.co"
+];
+
 function readPrompt(fileName: string) {
   try {
     return fs.readFileSync(path.join(process.cwd(), "prompts", fileName), "utf8");
@@ -343,6 +374,37 @@ function normalizeOffers(offers: Array<Omit<ScoredInternshipOffer, "id">>): Scor
   }));
 }
 
+function getHostname(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function matchesHost(host: string, domains: string[]) {
+  return domains.some((domain) => host === domain || host.endsWith(`.${domain}`));
+}
+
+function isWeakAggregatorOffer(offer: ScoredInternshipOffer) {
+  const host = getHostname(offer.url);
+  const source = offer.source.toLowerCase();
+  if (!host) return true;
+  if (matchesHost(host, weakAggregatorHosts)) return true;
+  return weakAggregatorHosts.some((domain) => source.includes(domain.replace(/\.com|\.org|\.fr/g, "")));
+}
+
+function isDirectApplicationOffer(offer: ScoredInternshipOffer) {
+  const host = getHostname(offer.url);
+  if (!host) return false;
+  if (matchesHost(host, directApplicationHosts)) return true;
+  return /careers?|jobs?|job-detail|positions?|openings?|vacancies?|internship|apply/i.test(offer.url);
+}
+
+function filterPremiumSourceQuality(offers: ScoredInternshipOffer[]) {
+  return offers.filter((offer) => !isWeakAggregatorOffer(offer) && isDirectApplicationOffer(offer));
+}
+
 function captureOpenAIRequestFailure(error: unknown, profile: CandidateProfile, model: string, queryCount: number, options: WebInternshipSearchOptions = {}) {
   Sentry.withScope((scope) => {
     scope.setTag("feature", "premium-live-search");
@@ -416,7 +478,26 @@ export async function webInternshipSearch(profile: CandidateProfile, cvText: str
 
   assertWebSearchWasUsed(response);
   const text = extractText(response);
-  const offers = normalizeOffers(parseOffers(text));
+  const parsedOffers = normalizeOffers(parseOffers(text));
+  const offers = filterPremiumSourceQuality(parsedOffers);
+
+  if (parsedOffers.length > 0 && !offers.length) {
+    Sentry.withScope((scope) => {
+      scope.setTag("feature", "premium-live-search");
+      scope.setTag("model", model);
+      scope.setTag("retry", String(Boolean(options.retryMode)));
+      scope.setContext("premium_live_search_source_quality", {
+        parsedOfferCount: parsedOffers.length,
+        keptOfferCount: offers.length,
+        rejectedSources: parsedOffers.map((offer) => ({ source: offer.source, host: getHostname(offer.url) })).slice(0, 5),
+        queryCount: queries.length,
+        retry: Boolean(options.retryMode),
+        model
+      });
+      Sentry.captureMessage("Premium live search found only weak aggregator or job-board results", "warning");
+    });
+    throw new Error("Premium search found only weak aggregator or job-board results.");
+  }
 
   if (!offers.length) {
     Sentry.withScope((scope) => {
