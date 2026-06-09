@@ -188,6 +188,10 @@ function scoreCachedOpportunity(item: CachedBucketOpportunity, profile: Candidat
   return score;
 }
 
+function shouldMovePaidReportToReady(status?: PremiumSearchStatus, hasPremiumInputs = false) {
+  return hasPremiumInputs && status !== "running" && status !== "completed" && status !== "failed";
+}
+
 export { hasSupabaseConfig };
 
 export async function saveProfile(profile: CandidateProfile) {
@@ -361,12 +365,32 @@ export async function updateReportPremiumInputs(reportId: string, premiumInputs:
   const now = new Date().toISOString();
   const supabase = getSupabaseServerClient();
   if (supabase) {
-    const { error } = await supabase.from("search_reports").update({ premium_inputs: premiumInputs, premium_search_status: "pending_payment", premium_search_error: null, updated_at: now }).eq("id", reportId);
+    const { error } = await supabase
+      .from("search_reports")
+      .update({
+        premium_inputs: premiumInputs,
+        premium_offers: [],
+        premium_search_status: "pending_payment",
+        premium_search_error: null,
+        premium_search_started_at: null,
+        premium_search_completed_at: null,
+        updated_at: now
+      })
+      .eq("id", reportId);
     if (error) throw error;
     return;
   }
   const report = reports.get(reportId) ?? createMockReportForId(reportId);
-  reports.set(reportId, { ...report, premiumInputs, premiumSearchStatus: "pending_payment", premiumSearchError: undefined, updatedAt: now });
+  reports.set(reportId, {
+    ...report,
+    premiumInputs,
+    premiumOffers: [],
+    premiumSearchStatus: "pending_payment",
+    premiumSearchError: undefined,
+    premiumSearchStartedAt: undefined,
+    premiumSearchCompletedAt: undefined,
+    updatedAt: now
+  });
   persist();
 }
 
@@ -408,15 +432,37 @@ export async function updateReportPremiumOffers(reportId: string, offers: Scored
 export async function markReportPaid(reportId: string) {
   hydrate();
   const supabase = getSupabaseServerClient();
+  const now = new Date().toISOString();
   if (supabase) {
-    const { count, error } = await supabase
+    const { data, error: fetchError } = await supabase
       .from("search_reports")
-      .update({ is_paid: true, updated_at: new Date().toISOString() }, { count: "exact" })
-      .eq("id", reportId);
+      .select("premium_inputs,premium_search_status")
+      .eq("id", reportId)
+      .maybeSingle();
+
+    if (fetchError) throw fetchError;
+    if (!data) throw new Error(`No report found to mark paid: ${reportId}`);
+
+    const currentStatus = (data.premium_search_status as PremiumSearchStatus | null) ?? "not_started";
+    const patch: { is_paid: boolean; updated_at: string; premium_search_status?: PremiumSearchStatus } = { is_paid: true, updated_at: now };
+    if (shouldMovePaidReportToReady(currentStatus, Boolean(data.premium_inputs))) {
+      patch.premium_search_status = "ready_to_run";
+    }
+
+    const { count, error } = await supabase.from("search_reports").update(patch, { count: "exact" }).eq("id", reportId);
 
     if (error) throw error;
     if (count === 0) throw new Error(`No report found to mark paid: ${reportId}`);
     return;
   }
-  const report = reports.get(reportId); if (report) { reports.set(reportId, { ...report, isPaid: true, updatedAt: new Date().toISOString() }); persist(); }
+  const report = reports.get(reportId);
+  if (report) {
+    reports.set(reportId, {
+      ...report,
+      isPaid: true,
+      premiumSearchStatus: shouldMovePaidReportToReady(report.premiumSearchStatus, Boolean(report.premiumInputs)) ? "ready_to_run" : report.premiumSearchStatus,
+      updatedAt: now
+    });
+    persist();
+  }
 }
