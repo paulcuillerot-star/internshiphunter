@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createOpenAIResponse, hasOpenAIConfig } from "@/lib/openai";
 import { mockOffers } from "@/lib/mockData";
-import type { CandidateProfile, ScoredInternshipOffer } from "@/lib/types";
+import type { CandidateProfile, PremiumSearchBrief, ScoredInternshipOffer } from "@/lib/types";
 
 type OpenAITextResponse = {
   output_text?: string;
@@ -14,7 +14,6 @@ type OpenAITextResponse = {
   }>;
 };
 
-type KeywordDefinition = { term: string; aliases: string[] };
 type WebInternshipSearchOptions = { retryMode?: boolean };
 type ParseContext = { profile: CandidateProfile; queryCount: number; retry: boolean };
 
@@ -96,60 +95,6 @@ const outputSchema = {
   }
 };
 
-const roleKeywordDefinitions: KeywordDefinition[] = [
-  { term: "business development", aliases: ["business development", "biz dev", "bd"] },
-  { term: "marketing", aliases: ["marketing", "go-to-market", "gtm"] },
-  { term: "partnerships", aliases: ["partnership", "partnerships", "partner management"] },
-  { term: "sponsorship", aliases: ["sponsorship", "sponsorships", "commercial rights"] },
-  { term: "event management", aliases: ["event management", "events", "event operations", "matchday", "production"] },
-  { term: "operations", aliases: ["operations", "ops", "project operations"] },
-  { term: "strategy", aliases: ["strategy", "strategic", "transformation"] },
-  { term: "sales", aliases: ["sales", "account management", "client relationship"] },
-  { term: "brand activation", aliases: ["brand activation", "activation", "brand management"] },
-  { term: "commercial", aliases: ["commercial", "revenue", "business analyst"] },
-  { term: "consulting", aliases: ["consulting", "consultant", "analyst"] },
-  { term: "finance", aliases: ["finance", "investment", "m&a", "private equity", "asset management"] },
-  { term: "product", aliases: ["product", "product management", "product owner"] },
-  { term: "data analytics", aliases: ["data", "analytics", "business intelligence", "dashboard", "bi"] },
-  { term: "e-commerce", aliases: ["e-commerce", "ecommerce", "marketplace", "merchandising"] }
-];
-
-const industryKeywordDefinitions: KeywordDefinition[] = [
-  { term: "sports agency", aliases: ["sports agency", "sport agency"] },
-  { term: "sports", aliases: ["sport", "sports", "football", "tennis", "club", "league", "federation", "tournament"] },
-  { term: "event company", aliases: ["event company", "events company", "event agency"] },
-  { term: "consumer brand", aliases: ["consumer brand", "consumer goods", "fmcg"] },
-  { term: "luxury", aliases: ["luxury", "fashion", "retail"] },
-  { term: "startup", aliases: ["startup", "scaleup", "venture", "founder"] },
-  { term: "hospitality", aliases: ["hospitality", "hotel", "tourism", "travel"] },
-  { term: "tech", aliases: ["tech", "software", "saas", "digital"] }
-];
-
-const seniorityKeywordDefinitions: KeywordDefinition[] = [
-  { term: "internship", aliases: ["internship", "intern", "stage"] },
-  { term: "trainee", aliases: ["trainee", "graduate trainee"] },
-  { term: "student placement", aliases: ["student placement", "placement", "working student"] }
-];
-
-const sportEventSignals = [
-  "sport",
-  "sports",
-  "sponsorship",
-  "partnership",
-  "partnerships",
-  "events",
-  "event",
-  "federation",
-  "club",
-  "agency",
-  "tournament",
-  "hospitality",
-  "fan experience",
-  "matchday",
-  "football",
-  "tennis"
-];
-
 const weakAggregatorHosts = [
   "linkedin.com",
   "indeed.com",
@@ -181,12 +126,18 @@ const directApplicationHosts = [
   "homerun.co"
 ];
 
+const sportEventSignals = ["sport", "sports", "sponsorship", "partnership", "partnerships", "events", "event", "federation", "club", "agency", "tournament", "hospitality", "fan experience", "matchday", "football", "tennis"];
+
 function readPrompt(fileName: string) {
   try {
     return fs.readFileSync(path.join(process.cwd(), "prompts", fileName), "utf8");
   } catch {
     return "Find up to 3 high-quality, recent internship leads and return structured JSON only.";
   }
+}
+
+function unique(items: string[]) {
+  return Array.from(new Set(items.map((item) => item.trim()).filter(Boolean)));
 }
 
 function normalizeSearchText(value: string) {
@@ -199,98 +150,98 @@ function normalizeSearchText(value: string) {
     .trim();
 }
 
-function includesPhrase(text: string, phrase: string) {
-  const normalizedPhrase = normalizeSearchText(phrase).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|\s)${normalizedPhrase}(\s|$)`).test(text);
-}
-
-function extractMatchingTerms(text: string, definitions: KeywordDefinition[]) {
-  const normalizedText = normalizeSearchText(text);
-  return definitions
-    .filter((definition) => definition.aliases.some((alias) => includesPhrase(normalizedText, alias)))
-    .map((definition) => definition.term);
-}
-
-function removeAvoidedTerms(terms: string[], thingsToAvoid: string) {
-  const avoidedText = normalizeSearchText(thingsToAvoid);
-  if (!avoidedText) return terms;
-  return terms.filter((term) => !includesPhrase(avoidedText, term));
+function cleanQuery(query: string) {
+  return query.replace(/\s+/g, " ").trim();
 }
 
 function sanitizeCompanyForQuery(company: string) {
   return company.replace(/["\n\r]/g, " ").replace(/\s+/g, " ").trim();
 }
 
-function buildAvoidedCompanySuffix(profile: CandidateProfile) {
-  const companies = profile.companiesAlreadyAppliedTo.map(sanitizeCompanyForQuery).filter(Boolean).slice(0, 3);
+function buildAvoidedCompanySuffix(profile: CandidateProfile, searchBrief: PremiumSearchBrief) {
+  const companies = unique([...profile.companiesAlreadyAppliedTo, ...searchBrief.companiesAlreadyAppliedTo]).map(sanitizeCompanyForQuery).filter(Boolean).slice(0, 4);
   return companies.map((company) => `-"${company}"`).join(" ");
 }
 
-function extractUsefulKeywords(profile: CandidateProfile) {
-  const idealText = profile.idealInternshipDescription ?? "";
-  const profileText = [
-    idealText,
-    profile.desiredRoles.join(" "),
-    profile.targetIndustries.join(" "),
-    profile.cvText.slice(0, 1500)
-  ].join(" ");
-
-  const roleTerms = removeAvoidedTerms(extractMatchingTerms(profileText, roleKeywordDefinitions), profile.thingsToAvoid).slice(0, 5);
-  const industryTerms = removeAvoidedTerms(extractMatchingTerms(profileText, industryKeywordDefinitions), profile.thingsToAvoid).slice(0, 4);
-  const seniorityTerms = extractMatchingTerms(profileText, seniorityKeywordDefinitions).slice(0, 2);
-
+function fallbackSearchBrief(profile: CandidateProfile): PremiumSearchBrief {
   return {
-    roleTerms,
-    industryTerms,
-    seniorityTerms: seniorityTerms.length ? seniorityTerms : ["internship"]
+    targetRoles: profile.desiredRoles,
+    rolePriority: profile.desiredRoles,
+    targetIndustries: profile.targetIndustries,
+    strictCities: profile.targetCities,
+    acceptableCountries: profile.targetCountries,
+    remoteAccepted: false,
+    languages: profile.languagesSpoken.map((language) => ({ language, level: "Working proficiency" })),
+    internshipStartDate: profile.internshipStartDate,
+    internshipDuration: profile.internshipDuration,
+    durationStrictness: "flexible",
+    companiesAlreadyAppliedTo: profile.companiesAlreadyAppliedTo,
+    hardFilters: profile.thingsToAvoid ? [profile.thingsToAvoid] : [],
+    softPreferences: [],
+    broadeningOrder: ["nearby cities", "adjacent roles", "nearby countries", "broader high-signal companies"],
+    profileSummary: profile.cvText,
+    idealInternshipDescription: profile.idealInternshipDescription
   };
 }
 
-function isSportEventRelated(profile: CandidateProfile, keywords: ReturnType<typeof extractUsefulKeywords>) {
+function getSearchBrief(profile: CandidateProfile) {
+  return profile.premiumSearchBrief ?? fallbackSearchBrief(profile);
+}
+
+function extractBriefKeywords(searchBrief: PremiumSearchBrief) {
+  const roleTerms = unique([...searchBrief.rolePriority, ...searchBrief.targetRoles]).slice(0, 6);
+  const industryTerms = unique(searchBrief.targetIndustries).slice(0, 4);
+  const locations = unique([...searchBrief.strictCities, ...searchBrief.acceptableCountries]).slice(0, 6);
+  const broadeningTerms = searchBrief.broadeningOrder.slice(0, 4);
+  const hardFilterText = searchBrief.hardFilters.join(" ");
+
+  return {
+    roleTerms: roleTerms.length ? roleTerms : ["business internship"],
+    industryTerms: industryTerms.length ? industryTerms : ["business"],
+    locations: locations.length ? locations : ["Europe"],
+    broadeningTerms,
+    hardFilterText
+  };
+}
+
+function isSportEventRelated(profile: CandidateProfile, searchBrief: PremiumSearchBrief) {
   const text = normalizeSearchText(
     [
+      searchBrief.idealInternshipDescription,
+      searchBrief.targetRoles.join(" "),
+      searchBrief.rolePriority.join(" "),
+      searchBrief.targetIndustries.join(" "),
+      searchBrief.softPreferences.join(" "),
       profile.idealInternshipDescription,
-      profile.desiredRoles.join(" "),
-      profile.targetIndustries.join(" "),
-      profile.cvText.slice(0, 1500),
-      keywords.roleTerms.join(" "),
-      keywords.industryTerms.join(" ")
+      profile.cvText.slice(0, 1200)
     ].join(" ")
   );
 
-  return sportEventSignals.some((signal) => includesPhrase(text, signal));
-}
-
-function cleanQuery(query: string) {
-  return query.replace(/\s+/g, " ").trim();
+  return sportEventSignals.some((signal) => text.includes(normalizeSearchText(signal)));
 }
 
 export function buildSearchQueries(profile: CandidateProfile, options: WebInternshipSearchOptions = {}) {
-  const countries = profile.targetCountries.length ? profile.targetCountries : ["international"];
-  const cities = profile.targetCities;
-  const locations = cities.length ? cities : countries;
-  const keywords = extractUsefulKeywords(profile);
-  const roleTerms = keywords.roleTerms.length ? keywords.roleTerms : profile.desiredRoles.length ? profile.desiredRoles.slice(0, 3) : ["business"];
-  const industryTerms = keywords.industryTerms.length ? keywords.industryTerms : profile.targetIndustries.length ? profile.targetIndustries.slice(0, 2) : ["business"];
-  const seniority = keywords.seniorityTerms[0] ?? "internship";
-  const avoidedCompanySuffix = buildAvoidedCompanySuffix(profile);
-  const hasSportEventIntent = isSportEventRelated(profile, keywords);
+  const searchBrief = getSearchBrief(profile);
+  const keywords = extractBriefKeywords(searchBrief);
+  const roleTerms = keywords.roleTerms;
+  const industryTerms = keywords.industryTerms;
+  const locations = keywords.locations;
+  const avoidedCompanySuffix = buildAvoidedCompanySuffix(profile, searchBrief);
+  const hasSportEventIntent = isSportEventRelated(profile, searchBrief);
 
-  const targetedQueries = locations.flatMap((location) =>
-    roleTerms.flatMap((role) => [
-      `${role} internship ${location} ${industryTerms[0] ?? "business"} ${avoidedCompanySuffix}`,
-      `${role} intern ${location} direct application ${avoidedCompanySuffix}`
+  const exactQueries = locations.flatMap((location) =>
+    roleTerms.slice(0, 4).flatMap((role) => [
+      `${role} internship ${location} direct application ${avoidedCompanySuffix}`,
+      `${role} intern ${location} ${industryTerms[0] ?? "business"} ${avoidedCompanySuffix}`
     ])
   );
 
-  const idealDrivenQueries = locations.flatMap((location) =>
-    roleTerms.slice(0, 4).flatMap((role) =>
-      industryTerms.slice(0, 3).map((industry) => `${role} ${seniority} ${location} ${industry} ${avoidedCompanySuffix}`)
-    )
+  const industryQueries = locations.flatMap((location) =>
+    industryTerms.slice(0, 3).flatMap((industry) => roleTerms.slice(0, 3).map((role) => `${role} internship ${location} ${industry} ${avoidedCompanySuffix}`))
   );
 
-  const atsKeyword = [...roleTerms, ...industryTerms].slice(0, 3).join(" ") || "business internship";
-  const locationKeyword = locations[0] ?? countries[0];
+  const atsKeyword = unique([...roleTerms, ...industryTerms]).slice(0, 4).join(" ") || "business internship";
+  const locationKeyword = locations[0] ?? "Europe";
   const hiddenBoardQueries = [
     `site:greenhouse.io internship ${atsKeyword} ${locationKeyword}`,
     `site:lever.co internship ${atsKeyword} ${locationKeyword}`,
@@ -317,20 +268,16 @@ export function buildSearchQueries(profile: CandidateProfile, options: WebIntern
       ];
 
   const retryQueries = options.retryMode
-    ? countries.flatMap((country) => [
-        `${roleTerms[0] ?? "business"} internship ${country} adjacent role ${avoidedCompanySuffix}`,
-        `${industryTerms[0] ?? "business"} trainee ${country} business school ${avoidedCompanySuffix}`,
-        `high signal internship ${country} ${atsKeyword} ${avoidedCompanySuffix}`
-      ])
+    ? searchBrief.broadeningOrder.flatMap((broadening) =>
+        locations.slice(0, 3).map((location) => `${roleTerms[0] ?? "business"} internship ${location} ${broadening} ${industryTerms[0] ?? "business"} ${avoidedCompanySuffix}`)
+      )
     : [];
 
-  return Array.from(new Set([...idealDrivenQueries, ...targetedQueries, ...hiddenBoardQueries, ...conditionalQueries, ...retryQueries].map(cleanQuery).filter(Boolean))).slice(0, 18);
+  return Array.from(new Set([...exactQueries, ...industryQueries, ...hiddenBoardQueries, ...conditionalQueries, ...retryQueries].map(cleanQuery).filter(Boolean))).slice(0, 18);
 }
 
 function extractText(response: OpenAITextResponse) {
-  if (response.output_text) {
-    return response.output_text;
-  }
+  if (response.output_text) return response.output_text;
 
   return (
     response.output
@@ -555,13 +502,16 @@ function captureOpenAIRequestFailure(error: unknown, profile: CandidateProfile, 
       retry: Boolean(options.retryMode),
       targetCountriesCount: profile.targetCountries.length,
       targetCitiesCount: profile.targetCities.length,
-      languagesCount: profile.languagesSpoken.length
+      languagesCount: profile.languagesSpoken.length,
+      hasSearchBrief: Boolean(profile.premiumSearchBrief)
     });
     Sentry.captureException(error);
   });
 }
 
 export async function webInternshipSearch(profile: CandidateProfile, cvText: string, options: WebInternshipSearchOptions = {}) {
+  const searchBrief = getSearchBrief(profile);
+
   if (!hasOpenAIConfig()) {
     if (process.env.NODE_ENV === "production") {
       throw new Error("OPENAI_API_KEY is not configured in production.");
@@ -600,13 +550,19 @@ export async function webInternshipSearch(profile: CandidateProfile, cvText: str
             {
               today: new Date().toISOString().slice(0, 10),
               candidateProfile: profile,
+              searchBrief,
               cvText,
               suggestedQueries: queries,
               retryMode: Boolean(options.retryMode),
+              hardFilterInstruction:
+                "Follow searchBrief.hardFilters strictly. Do not include roles matching those exclusions, companies already applied to, incompatible language requirements, expired postings, senior roles, full-time permanent roles, LinkedIn URLs, generic careers pages or weak aggregators.",
+              broadeningInstruction:
+                "If exact matches are limited, broaden only according to searchBrief.broadeningOrder. Never broaden language compatibility. Explain every broadened result in broadenedReason.",
               retryGuidance: options.retryMode
-                ? "This is a retry after no strong leads or a recoverable search failure. Broaden softly on nearby locations, city hubs and adjacent roles. Do not broaden language compatibility, excluded companies, expired roles, LinkedIn URLs, generic careers pages, weak aggregators or low-quality filler. Prefer 1-2 strong compatible leads over weak matches."
+                ? "This is a retry after no strong leads or a recoverable search failure. Broaden softly according to searchBrief.broadeningOrder, but keep language compatibility and hard filters strict. Prefer 1-2 strong compatible leads over weak matches."
                 : "",
-              requiredOutput: "Return up to 3 premium internship leads. Prefer 2 strong language-compatible leads over 3 weak or incompatible leads. If no valid compatible opportunities exist, return an empty offers array."
+              requiredOutput:
+                "Return up to 3 paid-quality premium internship leads. Aim for 2-3 useful direct employer or ATS leads. If no valid compatible opportunities exist, return an empty offers array."
             },
             null,
             2
@@ -649,9 +605,11 @@ export async function webInternshipSearch(profile: CandidateProfile, cvText: str
       scope.setTag("retry", String(Boolean(options.retryMode)));
       scope.setContext("premium_live_search_empty", {
         desiredRoles: profile.desiredRoles,
-        targetCountries: profile.targetCountries,
+        targetCountriesCount: profile.targetCountries.length,
         targetCitiesCount: profile.targetCities.length,
-        languagesSpoken: profile.languagesSpoken,
+        languagesCount: profile.languagesSpoken.length,
+        targetRolesCount: searchBrief.targetRoles.length,
+        hardFiltersCount: searchBrief.hardFilters.length,
         queryCount: queries.length,
         retry: Boolean(options.retryMode),
         model
