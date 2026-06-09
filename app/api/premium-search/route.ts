@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { webInternshipSearch } from "@/lib/ai/webInternshipSearch";
 import { getProfile, getReportIfAuthorized, updateReportPremiumOffers, updateReportPremiumSearchStatus } from "@/lib/store";
 import { getStripeClient } from "@/lib/stripe";
-import type { CandidateProfile, InternshipSearchReport, PremiumSearchInputs, PremiumSearchStatus } from "@/lib/types";
+import type { CandidateProfile, InternshipSearchReport, PremiumLanguage, PremiumSearchBrief, PremiumSearchInputs, PremiumSearchStatus } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -42,6 +42,8 @@ function sentryContext(report: InternshipSearchReport, premiumInputs?: PremiumSe
     targetCountriesCount: premiumInputs?.targetCountries.length ?? 0,
     targetCitiesCount: premiumInputs?.targetCities.length ?? 0,
     languagesCount: premiumInputs?.languagesSpoken.length ?? 0,
+    targetRolesCount: premiumInputs?.targetRoles?.length ?? 0,
+    hardFiltersCount: premiumInputs?.hardFilters?.length ?? 0,
     premiumSearchStatus: report.premiumSearchStatus ?? "not_started",
     offerCount: report.premiumOffers.length
   };
@@ -69,18 +71,60 @@ function capturePremiumSearchException(error: unknown, report: InternshipSearchR
   });
 }
 
+function unique(items: string[]) {
+  return Array.from(new Set(items.map((item) => item.trim()).filter(Boolean)));
+}
+
+function normalizeLanguages(inputs: PremiumSearchInputs): PremiumLanguage[] {
+  if (inputs.languages?.length) return inputs.languages;
+  return inputs.languagesSpoken.map((language) => ({ language, level: "Working proficiency" }));
+}
+
+function buildPremiumSearchBrief(inputs: PremiumSearchInputs): PremiumSearchBrief {
+  const hardFilters = inputs.hardFilters?.length ? inputs.hardFilters : inputs.thingsToAvoid ? [inputs.thingsToAvoid] : [];
+
+  return {
+    targetRoles: inputs.targetRoles ?? [],
+    rolePriority: inputs.rolePriority?.length ? inputs.rolePriority : inputs.targetRoles ?? [],
+    targetIndustries: inputs.targetIndustries ?? [],
+    strictCities: inputs.strictCities?.length ? inputs.strictCities : inputs.targetCities,
+    acceptableCountries: inputs.acceptableCountries?.length ? inputs.acceptableCountries : inputs.targetCountries,
+    remoteAccepted: Boolean(inputs.remoteAccepted),
+    languages: normalizeLanguages(inputs),
+    internshipStartDate: inputs.internshipStartDate,
+    internshipDuration: inputs.internshipDuration,
+    durationStrictness: inputs.durationStrictness ?? "flexible",
+    companiesAlreadyAppliedTo: inputs.companiesAlreadyAppliedTo,
+    hardFilters,
+    softPreferences: inputs.softPreferences ?? [],
+    broadeningOrder: inputs.broadeningOrder?.length
+      ? inputs.broadeningOrder
+      : ["nearby cities", "adjacent roles in the same career family", "nearby countries or strong hubs", "broader high-signal companies"],
+    profileSummary: inputs.profileSummary,
+    idealInternshipDescription: inputs.idealInternshipDescription
+  };
+}
+
 function mergePremiumProfile(profile: CandidateProfile, premiumInputs: PremiumSearchInputs): CandidateProfile {
+  const searchBrief = buildPremiumSearchBrief(premiumInputs);
+  const languageNames = searchBrief.languages.map((item) => item.language).filter(Boolean);
+  const desiredRoles = unique([...searchBrief.rolePriority, ...searchBrief.targetRoles]);
+  const thingsToAvoid = unique([premiumInputs.thingsToAvoid, ...searchBrief.hardFilters]).join("\n");
+
   return {
     ...profile,
-    targetCountries: premiumInputs.targetCountries,
-    targetCities: premiumInputs.targetCities,
-    languagesSpoken: premiumInputs.languagesSpoken,
+    desiredRoles: desiredRoles.length ? desiredRoles : profile.desiredRoles,
+    targetCountries: searchBrief.acceptableCountries.length ? searchBrief.acceptableCountries : premiumInputs.targetCountries,
+    targetCities: searchBrief.strictCities.length ? searchBrief.strictCities : premiumInputs.targetCities,
+    targetIndustries: searchBrief.targetIndustries.length ? searchBrief.targetIndustries : profile.targetIndustries,
+    languagesSpoken: languageNames.length ? languageNames : premiumInputs.languagesSpoken,
     internshipStartDate: premiumInputs.internshipStartDate,
     internshipDuration: premiumInputs.internshipDuration,
     companiesAlreadyAppliedTo: premiumInputs.companiesAlreadyAppliedTo,
-    thingsToAvoid: premiumInputs.thingsToAvoid,
+    thingsToAvoid,
     idealInternshipDescription: premiumInputs.idealInternshipDescription,
-    cvText: premiumInputs.profileSummary || profile.cvText
+    cvText: premiumInputs.profileSummary || profile.cvText,
+    premiumSearchBrief: searchBrief
   };
 }
 
