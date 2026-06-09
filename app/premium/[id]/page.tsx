@@ -25,7 +25,6 @@ type PremiumSearchParams = {
 function refreshHref(reportId: string, token?: string) {
   const params = new URLSearchParams();
   if (token) params.set("token", token);
-  params.set("paid", "true");
   params.set("refresh", String(Date.now()));
   return `/premium/${reportId}?${params.toString()}`;
 }
