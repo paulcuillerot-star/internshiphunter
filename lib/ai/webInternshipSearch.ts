@@ -464,21 +464,30 @@ function captureJsonParseFailure(error: unknown, text: string, context: ParseCon
   });
 }
 
+function tryParseJsonObject(text: string) {
+  try {
+    return JSON.parse(text) as { offers?: Array<Omit<ScoredInternshipOffer, "id">> };
+  } catch {
+    const repaired = repairControlCharactersInJsonStrings(text);
+    if (repaired === text) throw new Error("JSON parse failed before repair.");
+    return JSON.parse(repaired) as { offers?: Array<Omit<ScoredInternshipOffer, "id">> };
+  }
+}
+
 function parseJsonObject(text: string) {
-  const candidates = [stripMarkdownFence(text), extractFirstJsonObject(stripMarkdownFence(text))];
+  const stripped = stripMarkdownFence(text);
+  const candidates = Array.from(new Set([stripped, extractFirstJsonObject(stripped)]));
+  let lastError: unknown;
 
   for (const candidate of candidates) {
     try {
-      return JSON.parse(candidate) as { offers?: Array<Omit<ScoredInternshipOffer, "id">> };
-    } catch {
-      const repaired = repairControlCharactersInJsonStrings(candidate);
-      if (repaired !== candidate) {
-        return JSON.parse(repaired) as { offers?: Array<Omit<ScoredInternshipOffer, "id">> };
-      }
+      return tryParseJsonObject(candidate);
+    } catch (error) {
+      lastError = error;
     }
   }
 
-  return JSON.parse(repairControlCharactersInJsonStrings(candidates[candidates.length - 1]));
+  throw lastError instanceof Error ? lastError : new Error("JSON parse failed.");
 }
 
 function parseOffers(text: string, context: ParseContext) {
