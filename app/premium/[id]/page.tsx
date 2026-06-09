@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/nextjs";
 import { notFound } from "next/navigation";
+import { ContinuePremiumCheckoutButton } from "@/components/ContinuePremiumCheckoutButton";
 import { OfferCard } from "@/components/OfferCard";
 import { PremiumCheckoutConfirmer } from "@/components/PremiumCheckoutConfirmer";
 import { PremiumSearchForm } from "@/components/PremiumSearchForm";
@@ -65,6 +66,53 @@ function capturePaidMissingInputs(reportId: string, isPaid: boolean, premiumSear
   });
 }
 
+function captureSavedCriteriaNotUnlocked({
+  reportId,
+  isPaid,
+  premiumSearchStatus,
+  offerCount,
+  hasPaidReturnParam,
+  hasSessionId,
+  allowCriteriaRefill
+}: {
+  reportId: string;
+  isPaid: boolean;
+  premiumSearchStatus: string;
+  offerCount: number;
+  hasPaidReturnParam: boolean;
+  hasSessionId: boolean;
+  allowCriteriaRefill: boolean;
+}) {
+  Sentry.withScope((scope) => {
+    scope.setTag("feature", "premium-search");
+    scope.setTag("reportId", reportId);
+    scope.setContext("premium_saved_criteria_not_unlocked", {
+      reportId,
+      isPaid,
+      premiumSearchStatus,
+      hasPremiumInputs: true,
+      offerCount,
+      hasPaidReturnParam,
+      hasSessionId,
+      allowCriteriaRefill
+    });
+    Sentry.captureMessage("Premium report has saved criteria but is not unlocked", "warning");
+  });
+}
+
+function PremiumOffers({ reportId, offers }: { reportId: string; offers: Parameters<typeof OfferCard>[0]["offer"][] }) {
+  return (
+    <section className="section">
+      <p className="text-sm font-semibold uppercase text-signal">Premium unlocked</p>
+      <h1 className="mt-3 text-4xl font-bold text-ink">Your curated premium internship leads</h1>
+      <p className="mt-3 max-w-2xl text-ink/70">
+        3 curated internship leads when available. If your criteria are narrow, close alternatives may be included and clearly labelled.
+      </p>
+      <div className="mt-8 grid gap-5">{offers.map((offer) => <OfferCard key={offer.id} offer={offer} reportId={reportId} premium />)}</div>
+    </section>
+  );
+}
+
 export default async function PremiumPage({ params, searchParams }: { params: { id: string }; searchParams: PremiumSearchParams }) {
   const report = await getReportIfAuthorized(params.id, searchParams.token);
   if (!report) notFound();
@@ -76,28 +124,15 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
   const paymentCancelled = searchParams.payment === "cancelled";
   const allowCriteriaRefill = searchParams.refill === "true";
   const premiumStatus = report.premiumSearchStatus ?? "not_started";
-  const completedOffers = premiumStatus !== "running" && premiumStatus !== "failed" ? report.premiumOffers.slice(0, 3) : [];
+  const completedOffers = report.premiumOffers.slice(0, 3);
   const retryAvailable = premiumStatus === "failed" && report.premiumOffers.length === 0 && canRetryPremiumSearch(report.premiumSearchError);
+
+  if (completedOffers.length > 0) {
+    return <PremiumOffers reportId={report.id} offers={completedOffers} />;
+  }
 
   if (paymentReturning && !unlocked && searchParams.session_id) {
     return <PremiumCheckoutConfirmer reportId={report.id} accessToken={report.accessToken} sessionId={searchParams.session_id} />;
-  }
-
-  if (paymentReturning && !unlocked) {
-    return (
-      <section className="section">
-        <div className="max-w-2xl rounded-lg border border-emerald-100 bg-white p-8 shadow-soft">
-          <p className="text-sm font-semibold uppercase text-signal">Payment confirmed</p>
-          <h1 className="mt-3 text-4xl font-bold text-ink">Unlocking your report...</h1>
-          <p className="mt-4 text-ink/70">
-            Stripe sent you back successfully. We are waiting for the secure payment confirmation to finish updating your report.
-          </p>
-          <a href={refreshHref(report.id, report.accessToken)} className="mt-6 inline-flex button-primary">
-            Refresh unlock status
-          </a>
-        </div>
-      </section>
-    );
   }
 
   if (unlocked && !report.premiumInputs && !allowCriteriaRefill) {
@@ -119,7 +154,7 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
     );
   }
 
-  if (!report.premiumInputs || !unlocked) {
+  if (allowCriteriaRefill) {
     return (
       <section className="section">
         <div className="max-w-3xl">
@@ -132,6 +167,77 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
             If your criteria are narrow, we may include close alternatives and explain what was broadened.
           </p>
           <PremiumSearchForm reportId={report.id} accessToken={report.accessToken} initialInputs={report.premiumInputs} paymentCancelled={paymentCancelled} />
+        </div>
+      </section>
+    );
+  }
+
+  if (!report.premiumInputs && !unlocked && !paymentReturning) {
+    return (
+      <section className="section">
+        <div className="max-w-3xl">
+          <p className="text-sm font-semibold uppercase text-signal">Premium search</p>
+          <h1 className="mt-3 text-4xl font-black text-ink">Find the 3 best internships for you right now</h1>
+          <p className="mt-4 max-w-2xl text-ink/70">
+            Add a few details so Internship Hunter can search for opportunities that fit your profile, locations, languages and timing.
+          </p>
+          <p className="mt-3 max-w-2xl text-sm font-semibold text-ink/55">
+            If your criteria are narrow, we may include close alternatives and explain what was broadened.
+          </p>
+          <PremiumSearchForm reportId={report.id} accessToken={report.accessToken} initialInputs={report.premiumInputs} paymentCancelled={paymentCancelled} />
+        </div>
+      </section>
+    );
+  }
+
+  if (report.premiumInputs && !unlocked) {
+    captureSavedCriteriaNotUnlocked({
+      reportId: report.id,
+      isPaid: Boolean(report.isPaid),
+      premiumSearchStatus: premiumStatus,
+      offerCount: report.premiumOffers.length,
+      hasPaidReturnParam: paymentReturning,
+      hasSessionId: Boolean(searchParams.session_id),
+      allowCriteriaRefill
+    });
+
+    return (
+      <section className="section">
+        <div className="max-w-2xl rounded-lg border border-emerald-100 bg-white p-8 shadow-soft">
+          <p className="text-sm font-semibold uppercase text-signal">Premium criteria saved</p>
+          <h1 className="mt-3 text-4xl font-bold text-ink">Your premium criteria are saved, but payment is not confirmed yet.</h1>
+          <p className="mt-4 text-ink/70">
+            Your search criteria are linked to this report. If Stripe is still confirming the payment, refresh the status in a moment. You can also continue to payment again without refilling the questionnaire.
+          </p>
+          {paymentReturning ? (
+            <p className="mt-4 rounded-md bg-amber-50 p-3 text-sm text-amber-800">
+              Stripe sent you back, but this return URL is missing the checkout session id. Payment confirmation may still be pending.
+            </p>
+          ) : null}
+          <p className="mt-4 rounded-md bg-emerald-50 p-3 text-sm text-emerald-800">Report id: {report.id}</p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <a href={refreshHref(report.id, report.accessToken)} className="inline-flex button-secondary">
+              Refresh payment status
+            </a>
+            <ContinuePremiumCheckoutButton reportId={report.id} accessToken={report.accessToken} />
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (paymentReturning && !unlocked) {
+    return (
+      <section className="section">
+        <div className="max-w-2xl rounded-lg border border-emerald-100 bg-white p-8 shadow-soft">
+          <p className="text-sm font-semibold uppercase text-signal">Payment confirmed</p>
+          <h1 className="mt-3 text-4xl font-bold text-ink">Unlocking your report...</h1>
+          <p className="mt-4 text-ink/70">
+            Stripe sent you back successfully. We are waiting for the secure payment confirmation to finish updating your report.
+          </p>
+          <a href={refreshHref(report.id, report.accessToken)} className="mt-6 inline-flex button-primary">
+            Refresh unlock status
+          </a>
         </div>
       </section>
     );
@@ -150,19 +256,6 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
             Refresh payment status
           </a>
         </div>
-      </section>
-    );
-  }
-
-  if (completedOffers.length > 0) {
-    return (
-      <section className="section">
-        <p className="text-sm font-semibold uppercase text-signal">Premium unlocked</p>
-        <h1 className="mt-3 text-4xl font-bold text-ink">Your curated premium internship leads</h1>
-        <p className="mt-3 max-w-2xl text-ink/70">
-          3 curated internship leads when available. If your criteria are narrow, close alternatives may be included and clearly labelled.
-        </p>
-        <div className="mt-8 grid gap-5">{completedOffers.map((offer) => <OfferCard key={offer.id} offer={offer} reportId={report.id} premium />)}</div>
       </section>
     );
   }
@@ -221,6 +314,21 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
             We will use your saved premium criteria to search once for up to 3 curated leads. Refreshing the page will not start duplicate searches after the run begins.
           </p>
           <PremiumSearchRunner reportId={report.id} accessToken={report.accessToken} />
+        </div>
+      </section>
+    );
+  }
+
+  if (premiumStatus === "completed") {
+    return (
+      <section className="section">
+        <div className="max-w-2xl rounded-lg border border-amber-100 bg-white p-8 shadow-soft">
+          <p className="text-sm font-semibold uppercase text-amber-600">Premium search completed</p>
+          <h1 className="mt-3 text-4xl font-bold text-ink">No premium leads are saved on this report yet</h1>
+          <p className="mt-4 text-ink/70">
+            The report status says completed, but there are no premium leads attached. Please contact support with this report id so we can review the search state.
+          </p>
+          <p className="mt-4 rounded-md bg-amber-50 p-3 text-sm text-amber-700">Report id: {report.id}</p>
         </div>
       </section>
     );
