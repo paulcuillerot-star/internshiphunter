@@ -38,6 +38,7 @@ export default async function AdminPage({ searchParams }: { searchParams: { pass
         </div>
         <div className="flex flex-wrap gap-3">
           <Link className="rounded-md bg-signal px-4 py-2 text-sm font-bold text-white" href={`/admin/cache?password=${adminPasswordQuery}`}>Review cache</Link>
+          <Link className="rounded-md border border-line bg-white px-4 py-2 text-sm font-bold text-ink" href={`/admin/premium-searches?password=${adminPasswordQuery}`}>Premium searches</Link>
           <Link className="rounded-md border border-line bg-white px-4 py-2 text-sm font-bold text-ink" href={`/admin/test-sentry?password=${adminPasswordQuery}`}>Test Sentry</Link>
         </div>
       </div>
