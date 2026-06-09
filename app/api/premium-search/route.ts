@@ -195,7 +195,7 @@ export async function POST(request: Request) {
 
     const profile = await getProfile(report.profileId);
     const premiumProfile = mergePremiumProfile(profile, premiumInputs);
-    const result = await webInternshipSearch(premiumProfile, premiumProfile.cvText, { retryMode: retryRequested });
+    const result = await webInternshipSearch(premiumProfile, premiumProfile.cvText, { retryMode: retryRequested, reportId: report.id });
     const offers = result.offers.slice(0, 3).map((offer) => ({ ...offer, isPremium: true }));
 
     if (!offers.length) {
