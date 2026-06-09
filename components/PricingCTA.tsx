@@ -2,7 +2,7 @@ import Link from "next/link";
 
 export function PricingCTA({ reportId, accessToken }: { reportId?: string; accessToken?: string }) {
   const tokenParam = accessToken ? `?token=${encodeURIComponent(accessToken)}` : "";
-  const href = reportId ? `/premium/${reportId}${tokenParam}` : "/apply";
+  const href = reportId ? `/premium/${reportId}${tokenParam}` : "/premium/start";
 
   return (
     <div className="rounded-lg border border-emerald-400/30 bg-ink p-6 text-white shadow-soft">
@@ -15,7 +15,7 @@ export function PricingCTA({ reportId, accessToken }: { reportId?: string; acces
         If your criteria are narrow, close alternatives may be included and clearly labelled.
       </p>
       <Link href={href} className="mt-5 inline-flex rounded-md bg-emerald-400 px-5 py-3 text-sm font-bold text-ink shadow-[0_16px_35px_rgba(52,211,153,0.28)] transition hover:bg-emerald-300">
-        Find my 3 premium leads
+        Start Premium Search
       </Link>
     </div>
   );
