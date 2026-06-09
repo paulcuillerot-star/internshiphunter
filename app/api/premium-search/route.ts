@@ -11,6 +11,9 @@ export const runtime = "nodejs";
 const retryUsedMarker = "[retry-used]";
 const verySoonDeadlineRisk = "Deadline is very soon; apply immediately.";
 const missingDeadlineRisk = "Deadline not listed; verify before applying.";
+const contentUnverifiedRisk = "Could not fully verify page content; verify before applying.";
+const linkValidationTimeoutMs = 8_000;
+const stalePostingYears = ["2019", "2020", "2021", "2022", "2023", "2024"];
 
 const directApplicationHosts = [
   "greenhouse.io",
@@ -89,6 +92,14 @@ function capturePremiumSearchException(error: unknown, report: InternshipSearchR
   });
 }
 
+function urlHost(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return "invalid_url";
+  }
+}
+
 function captureDeadlineRejection(reportId: string, offer: ScoredInternshipOffer, reason: string) {
   Sentry.withScope((scope) => {
     scope.setTag("feature", "premium-search");
@@ -102,6 +113,40 @@ function captureDeadlineRejection(reportId: string, offer: ScoredInternshipOffer
       reason
     });
     Sentry.captureMessage("Premium offer rejected for deadline quality", "warning");
+  });
+}
+
+function captureLinkRejection(reportId: string, offer: ScoredInternshipOffer, reason: string, httpStatus?: number) {
+  Sentry.withScope((scope) => {
+    scope.setTag("feature", "premium-search");
+    scope.setTag("reportId", reportId);
+    scope.setTag("reason", reason);
+    scope.setContext("premium_link_rejection", {
+      reportId,
+      company: offer.company,
+      title: offer.title,
+      urlHost: urlHost(offer.url),
+      httpStatus,
+      reason
+    });
+    Sentry.captureMessage("Premium offer rejected for link quality", "warning");
+  });
+}
+
+function captureLinkWarning(reportId: string, offer: ScoredInternshipOffer, reason: string, httpStatus?: number) {
+  Sentry.withScope((scope) => {
+    scope.setTag("feature", "premium-search");
+    scope.setTag("reportId", reportId);
+    scope.setTag("reason", reason);
+    scope.setContext("premium_link_warning", {
+      reportId,
+      company: offer.company,
+      title: offer.title,
+      urlHost: urlHost(offer.url),
+      httpStatus,
+      reason
+    });
+    Sentry.captureMessage("Premium offer link content could not be fully verified", "warning");
   });
 }
 
@@ -197,6 +242,11 @@ function hostMatches(host: string, domains: string[]) {
   return domains.some((domain) => host === domain || host.endsWith(`.${domain}`));
 }
 
+function isTrustedDirectApplicationHost(url: string) {
+  const host = urlHost(url);
+  return hostMatches(host, directApplicationHosts);
+}
+
 function hasDirectApplicationUrl(url: string) {
   try {
     const parsed = new URL(url);
@@ -251,6 +301,147 @@ function filterPremiumDeadlineQuality(offers: ScoredInternshipOffer[], reportId:
 
     return [offer];
   });
+}
+
+function normalizePageText(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function meaningfulTokens(value: string) {
+  return normalizePageText(value)
+    .split(" ")
+    .filter((token) => token.length >= 4 && !["intern", "internship", "stage", "trainee", "assistant", "the", "and", "with"].includes(token));
+}
+
+function pageHasOfferEvidence(text: string, offer: ScoredInternshipOffer) {
+  const normalized = normalizePageText(text);
+  const companyTokens = meaningfulTokens(offer.company);
+  const titleTokens = meaningfulTokens(offer.title);
+  const companyMatch = companyTokens.length > 0 && companyTokens.some((token) => normalized.includes(token));
+  const titleMatches = titleTokens.filter((token) => normalized.includes(token)).length;
+  return companyMatch || titleMatches >= Math.min(2, titleTokens.length || 2);
+}
+
+function isGenericDestination(url: string) {
+  try {
+    const parsed = new URL(url);
+    const path = parsed.pathname.replace(/\/$/, "").toLowerCase();
+    return path === "" || path === "/" || /\/(careers?|jobs?|openings?|positions?|vacancies?|search|job-search|opportunities)$/.test(path);
+  } catch {
+    return true;
+  }
+}
+
+function hasClosedOrArchivedText(text: string) {
+  return /job not found|position closed|job closed|this job is no longer available|no longer accepting applications|posting has expired|job expired|archived|removed|not found|404|410/i.test(text);
+}
+
+function hasStalePostingYear(text: string) {
+  const normalized = normalizePageText(text).slice(0, 40_000);
+  return stalePostingYears.some((year) => {
+    const yearIndex = normalized.indexOf(year);
+    if (yearIndex === -1) return false;
+    const window = normalized.slice(Math.max(0, yearIndex - 80), yearIndex + 80);
+    return /intern|internship|stage|trainee|deadline|closing|apply|posted|job|role|position/.test(window);
+  });
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), linkValidationTimeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal, redirect: "follow" });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchOfferPage(url: string) {
+  let headStatus: number | undefined;
+
+  try {
+    const head = await fetchWithTimeout(url, { method: "HEAD", headers: { "User-Agent": "InternshipHunter/1.0" } });
+    headStatus = head.status;
+    if (head.status === 404 || head.status === 410) {
+      return { status: head.status, finalUrl: head.url, text: "" };
+    }
+  } catch {
+    // Many ATS pages block HEAD. GET below is the source of truth.
+  }
+
+  const response = await fetchWithTimeout(url, { method: "GET", headers: { "User-Agent": "InternshipHunter/1.0", Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8" } });
+  const contentType = response.headers.get("content-type") ?? "";
+  const text = contentType.includes("text") || contentType.includes("html") || contentType.includes("json") ? (await response.text()).slice(0, 120_000) : "";
+  return { status: response.status || headStatus, finalUrl: response.url || url, text };
+}
+
+async function validateOfferLink(offer: ScoredInternshipOffer, reportId: string) {
+  try {
+    const page = await fetchOfferPage(offer.url);
+    const status = page.status ?? 0;
+    const finalUrl = page.finalUrl || offer.url;
+    const textForChecks = `${finalUrl}\n${offer.title}\n${offer.company}\n${offer.deadline}\n${offer.publishedDate}\n${page.text}`;
+    const trustedDirectHost = isTrustedDirectApplicationHost(finalUrl) || isTrustedDirectApplicationHost(offer.url);
+    const reachable = status >= 200 && status < 400;
+
+    if (status >= 400) {
+      captureLinkRejection(reportId, offer, "unreachable_url", status);
+      return undefined;
+    }
+
+    if (hasClosedOrArchivedText(textForChecks)) {
+      captureLinkRejection(reportId, offer, "archived_or_closed", status);
+      return undefined;
+    }
+
+    if (hasStalePostingYear(textForChecks)) {
+      captureLinkRejection(reportId, offer, "stale_posting", status);
+      return undefined;
+    }
+
+    if (isGenericDestination(finalUrl) && !pageHasOfferEvidence(page.text, offer)) {
+      captureLinkRejection(reportId, offer, "generic_redirect", status);
+      return undefined;
+    }
+
+    if (!pageHasOfferEvidence(page.text, offer)) {
+      if (trustedDirectHost && reachable) {
+        captureLinkWarning(reportId, offer, "content_unverified_trusted_ats", status);
+        return withRisk(finalUrl === offer.url ? offer : { ...offer, url: finalUrl }, contentUnverifiedRisk);
+      }
+
+      captureLinkRejection(reportId, offer, "content_mismatch", status);
+      return undefined;
+    }
+
+    return finalUrl === offer.url ? offer : { ...offer, url: finalUrl };
+  } catch (error) {
+    captureLinkRejection(reportId, offer, "unreachable_url");
+    Sentry.addBreadcrumb({
+      category: "premium-link-validation",
+      level: "warning",
+      message: "Premium offer link validation failed",
+      data: { reportId, company: offer.company, title: offer.title, urlHost: urlHost(offer.url), error: error instanceof Error ? error.message : "unknown" }
+    });
+    return undefined;
+  }
+}
+
+async function filterPremiumLinkQuality(offers: ScoredInternshipOffer[], reportId: string) {
+  const validated: ScoredInternshipOffer[] = [];
+
+  for (const offer of offers) {
+    const checked = await validateOfferLink(offer, reportId);
+    if (checked) validated.push(checked);
+  }
+
+  return validated;
 }
 
 export async function POST(request: Request) {
@@ -321,10 +512,11 @@ export async function POST(request: Request) {
     const profile = await getProfile(report.profileId);
     const premiumProfile = mergePremiumProfile(profile, premiumInputs);
     const result = await webInternshipSearch(premiumProfile, premiumProfile.cvText, { retryMode: retryRequested });
-    const offers = filterPremiumDeadlineQuality(result.offers, report.id).slice(0, 3).map((offer) => ({ ...offer, isPremium: true }));
+    const linkCheckedOffers = await filterPremiumLinkQuality(result.offers, report.id);
+    const offers = filterPremiumDeadlineQuality(linkCheckedOffers, report.id).slice(0, 3).map((offer) => ({ ...offer, isPremium: true }));
 
     if (!offers.length) {
-      throw new Error("Premium live search returned zero valid opportunities after deadline filtering.");
+      throw new Error("Premium live search returned zero valid opportunities after link and deadline filtering.");
     }
 
     await updateReportPremiumOffers(report.id, offers);

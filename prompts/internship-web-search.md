@@ -87,6 +87,15 @@ Deadline quality:
 - If the deadline is tomorrow and you include it, add a clear risk note that the deadline is very soon.
 - If the deadline is unknown or not listed, do not invent one. Use "Deadline not listed" and add a risk note if relevant.
 
+Live link and freshness quality:
+- Do not return old indexed postings.
+- Do not return offers from 2019, 2020, 2021, 2022, 2023 or 2024.
+- Prefer current live pages from employer and ATS sources.
+- Check that the final URL opens the specific role page, not an old search result, archived page or generic careers homepage.
+- If the page appears archived, expired, unavailable, removed, no longer accepting applications or returns 404/410, do not include it.
+- If a redirect lands on a generic careers page without the specific job title, do not include it.
+- Unknown posting date is acceptable only when the URL is live and clearly relevant to the specific role.
+
 Premium source quality:
 - Premium results should not feel like generic job-board scraping.
 - Prefer direct company career pages and ATS application pages.
