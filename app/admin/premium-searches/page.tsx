@@ -55,7 +55,8 @@ function statusClass(status?: string) {
 }
 
 function isPremiumReport(report: InternshipSearchReport) {
-  return Boolean(report.isPaid || report.premiumInputs || report.premiumOffers.length || report.premiumSearchStatus !== "not_started");
+  const premiumStatus = report.premiumSearchStatus ?? "not_started";
+  return Boolean(report.isPaid || report.premiumInputs || report.premiumOffers.length || premiumStatus !== "not_started");
 }
 
 function matchesFilter(row: ReportRow, filter: Filter) {
@@ -93,9 +94,14 @@ function briefFromInputs(inputs?: PremiumSearchInputs): PremiumSearchBrief | und
     hardFilters,
     softPreferences: inputs.softPreferences ?? [],
     broadeningOrder: inputs.broadeningOrder?.length ? inputs.broadeningOrder : ["nearby cities", "adjacent roles", "nearby countries", "broader high-signal companies"],
-    profileSummary: inputs.profileSummary,
+    profileSummary: inputs.profileSummary ? "[hidden in admin dashboard]" : "",
     idealInternshipDescription: inputs.idealInternshipDescription
   };
+}
+
+function safePremiumInputs(inputs?: PremiumSearchInputs) {
+  if (!inputs) return undefined;
+  return { ...inputs, profileSummary: inputs.profileSummary ? "[hidden in admin dashboard]" : "" };
 }
 
 function JsonBlock({ value }: { value: unknown }) {
@@ -232,7 +238,7 @@ export default async function AdminPremiumSearchesPage({ searchParams }: { searc
           <div className="mt-6 grid gap-5 lg:grid-cols-2">
             <section>
               <h3 className="text-lg font-bold text-ink">Premium inputs</h3>
-              <div className="mt-3"><JsonBlock value={selected.report.premiumInputs} /></div>
+              <div className="mt-3"><JsonBlock value={safePremiumInputs(selected.report.premiumInputs)} /></div>
             </section>
             <section>
               <h3 className="text-lg font-bold text-ink">Premium search brief</h3>
