@@ -1,78 +1,108 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { PremiumSearchInputs } from "@/lib/types";
 
 const fieldClass = "w-full rounded-2xl border border-line bg-white px-4 py-3 text-base text-ink outline-none transition placeholder:text-ink/35 focus:border-signal focus:ring-4 focus:ring-signal/10";
 const labelClass = "grid gap-2 text-sm font-bold text-ink";
 const showTestPreset = process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_ENABLE_PREMIUM_TEST_PRESET === "true";
 
+const defaultBroadeningOrder = [
+  "Nearby cities",
+  "Same role in broader industries",
+  "Adjacent commercial/business roles",
+  "Broader high-signal companies"
+];
+
+const expansionOptions = ["Nearby cities", "Similar roles", "Similar industries", "Recognized companies", "Don't expand"];
+
 const testPreset = {
-  targetRoles: "Business development, Partnerships, Sponsorship, Marketing, Event management",
-  rolePriority: "Partnerships, Business development, Marketing",
+  rolesWanted: "Business development, Partnerships, Sponsorship, Marketing, Event management",
+  locationsWanted: "Paris, France, Geneva, Switzerland, Brussels, Belgium",
   targetIndustries: "Sports, Events, Consumer brands, SaaS, Hospitality",
-  targetCountries: "France, Switzerland, Belgium",
-  targetCities: "Paris, Geneva, Brussels",
   languagesSpoken: "French fluent, English fluent, Spanish professional",
-  internshipStartDate: "September 2026",
-  internshipDuration: "4-6 months",
+  timing: "September 2026, 4-6 months",
   durationStrictness: "flexible",
-  companiesAlreadyAppliedTo: "Nike, L'Oréal, Chanel",
+  companiesAlreadyAppliedTo: "Nike, L'Oreal, Chanel",
   hardFilters: "No Dutch-required roles, no pure data analytics, no accounting, no coding-heavy roles, no German-only roles, no senior roles, no internships longer than 6 months",
   softPreferences: "Fast-growing company, sports or events context, client meetings, commercial reporting, partnership activation",
-  broadeningOrder: "1. Same role in nearby cities, 2. Adjacent commercial roles, 3. Nearby countries, 4. Broader high-signal companies",
+  expansionPreference: ["Nearby cities", "Similar roles", "Recognized companies"],
   profileSummary:
     "Business school master student at SKEMA with experience in business development, e-retail, category management, sports fan experience and event coordination. Strong skills in commercial analysis, sales support, partnerships, project coordination and client relationship management.",
   idealInternshipDescription:
-    "A 4-6 month internship starting around September 2026 in business development, sales, partnerships, sponsorship, marketing or event management. Ideally in tech, sport, events, consumer brands, SaaS, hospitality or a fast-growing company. The role should include prospecting, account management, partnership activation, market research, client meetings, commercial reporting or campaign coordination."
+    "A 4-6 month internship starting around September 2026 in business development, sales, partnerships, sponsorship, marketing or event management. Ideally in tech, sport, events, consumer brands, SaaS, hospitality or a fast-growing company."
 };
 
 function joinList(items?: string[]) {
   return items?.join(", ") ?? "";
 }
 
+function combineLocations(initialInputs?: PremiumSearchInputs) {
+  return joinList([...(initialInputs?.strictCities ?? initialInputs?.targetCities ?? []), ...(initialInputs?.acceptableCountries ?? initialInputs?.targetCountries ?? [])]);
+}
+
+function combineTiming(initialInputs?: PremiumSearchInputs) {
+  return [initialInputs?.internshipStartDate, initialInputs?.internshipDuration].filter(Boolean).join(", ");
+}
+
 function durationStrictnessValue(initialInputs?: PremiumSearchInputs) {
   return initialInputs?.durationStrictness ?? "flexible";
+}
+
+function broadeningOrderFromSelection(selection: string[]) {
+  if (selection.includes("Don't expand")) return ["Do not expand beyond the requested criteria"];
+  if (!selection.length) return defaultBroadeningOrder;
+
+  const mapped = selection.map((item) => {
+    if (item === "Similar roles") return "Adjacent commercial/business roles";
+    if (item === "Similar industries") return "Same role in broader industries";
+    if (item === "Recognized companies") return "Broader high-signal companies";
+    return item;
+  });
+
+  return Array.from(new Set(mapped));
 }
 
 export function PremiumSearchForm({ reportId, accessToken, initialInputs, paymentCancelled = false }: { reportId: string; accessToken?: string; initialInputs?: PremiumSearchInputs; paymentCancelled?: boolean }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [targetRoles, setTargetRoles] = useState(joinList(initialInputs?.targetRoles));
-  const [rolePriority, setRolePriority] = useState(joinList(initialInputs?.rolePriority));
-  const [targetIndustries, setTargetIndustries] = useState(joinList(initialInputs?.targetIndustries));
-  const [targetCountries, setTargetCountries] = useState(joinList(initialInputs?.acceptableCountries ?? initialInputs?.targetCountries));
-  const [targetCities, setTargetCities] = useState(joinList(initialInputs?.strictCities ?? initialInputs?.targetCities));
-  const [remoteAccepted, setRemoteAccepted] = useState(Boolean(initialInputs?.remoteAccepted));
+  const [rolesWanted, setRolesWanted] = useState(joinList(initialInputs?.rolePriority?.length ? initialInputs.rolePriority : initialInputs?.targetRoles));
+  const [locationsWanted, setLocationsWanted] = useState(combineLocations(initialInputs));
   const [languagesSpoken, setLanguagesSpoken] = useState(joinList(initialInputs?.languagesSpoken));
-  const [internshipStartDate, setInternshipStartDate] = useState(initialInputs?.internshipStartDate ?? "");
-  const [internshipDuration, setInternshipDuration] = useState(initialInputs?.internshipDuration ?? "");
-  const [durationStrictness, setDurationStrictness] = useState<"strict" | "flexible">(durationStrictnessValue(initialInputs));
-  const [companiesAlreadyAppliedTo, setCompaniesAlreadyAppliedTo] = useState(joinList(initialInputs?.companiesAlreadyAppliedTo));
+  const [timing, setTiming] = useState(combineTiming(initialInputs));
   const [hardFilters, setHardFilters] = useState(joinList(initialInputs?.hardFilters) || initialInputs?.thingsToAvoid || "");
+  const [targetIndustries, setTargetIndustries] = useState(joinList(initialInputs?.targetIndustries));
+  const [companiesAlreadyAppliedTo, setCompaniesAlreadyAppliedTo] = useState(joinList(initialInputs?.companiesAlreadyAppliedTo));
+  const [remoteAccepted, setRemoteAccepted] = useState(Boolean(initialInputs?.remoteAccepted));
+  const [durationStrictness, setDurationStrictness] = useState<"strict" | "flexible">(durationStrictnessValue(initialInputs));
   const [softPreferences, setSoftPreferences] = useState(joinList(initialInputs?.softPreferences));
-  const [broadeningOrder, setBroadeningOrder] = useState(joinList(initialInputs?.broadeningOrder));
-  const [profileSummary, setProfileSummary] = useState(initialInputs?.profileSummary ?? "");
-  const [idealInternshipDescription, setIdealInternshipDescription] = useState(initialInputs?.idealInternshipDescription ?? "");
+  const [expansionPreference, setExpansionPreference] = useState<string[]>(initialInputs?.broadeningOrder?.length ? initialInputs.broadeningOrder : []);
+  const profileSummary = initialInputs?.profileSummary ?? "";
+  const idealInternshipDescription = initialInputs?.idealInternshipDescription ?? "";
+
+  const broadeningOrder = useMemo(() => broadeningOrderFromSelection(expansionPreference), [expansionPreference]);
+
+  function toggleExpansionPreference(option: string) {
+    setExpansionPreference((current) => {
+      if (option === "Don't expand") return current.includes(option) ? [] : [option];
+      const withoutNoExpand = current.filter((item) => item !== "Don't expand");
+      return withoutNoExpand.includes(option) ? withoutNoExpand.filter((item) => item !== option) : [...withoutNoExpand, option];
+    });
+  }
 
   function applyTestPreset() {
-    setTargetRoles(testPreset.targetRoles);
-    setRolePriority(testPreset.rolePriority);
+    setRolesWanted(testPreset.rolesWanted);
+    setLocationsWanted(testPreset.locationsWanted);
     setTargetIndustries(testPreset.targetIndustries);
-    setTargetCountries(testPreset.targetCountries);
-    setTargetCities(testPreset.targetCities);
     setRemoteAccepted(false);
     setLanguagesSpoken(testPreset.languagesSpoken);
-    setInternshipStartDate(testPreset.internshipStartDate);
-    setInternshipDuration(testPreset.internshipDuration);
+    setTiming(testPreset.timing);
     setDurationStrictness("flexible");
     setCompaniesAlreadyAppliedTo(testPreset.companiesAlreadyAppliedTo);
     setHardFilters(testPreset.hardFilters);
     setSoftPreferences(testPreset.softPreferences);
-    setBroadeningOrder(testPreset.broadeningOrder);
-    setProfileSummary(testPreset.profileSummary);
-    setIdealInternshipDescription(testPreset.idealInternshipDescription);
+    setExpansionPreference(testPreset.expansionPreference);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -80,30 +110,30 @@ export function PremiumSearchForm({ reportId, accessToken, initialInputs, paymen
     setLoading(true);
     setError("");
 
-    const formData = new FormData(event.currentTarget);
+    const generatedIdeal = idealInternshipDescription || [rolesWanted, targetIndustries, softPreferences].filter(Boolean).join(". ");
     const payload = {
       reportId,
       token: accessToken,
       premiumInputs: {
-        targetRoles: String(formData.get("targetRoles") ?? ""),
-        rolePriority: String(formData.get("rolePriority") ?? ""),
-        targetIndustries: String(formData.get("targetIndustries") ?? ""),
-        targetCountries: String(formData.get("targetCountries") ?? ""),
-        targetCities: String(formData.get("targetCities") ?? ""),
-        strictCities: String(formData.get("targetCities") ?? ""),
-        acceptableCountries: String(formData.get("targetCountries") ?? ""),
-        remoteAccepted: String(formData.get("remoteAccepted") ?? ""),
-        languagesSpoken: String(formData.get("languagesSpoken") ?? ""),
-        internshipStartDate: String(formData.get("internshipStartDate") ?? ""),
-        internshipDuration: String(formData.get("internshipDuration") ?? ""),
-        durationStrictness: String(formData.get("durationStrictness") ?? "flexible"),
-        companiesAlreadyAppliedTo: String(formData.get("companiesAlreadyAppliedTo") ?? ""),
-        hardFilters: String(formData.get("hardFilters") ?? ""),
-        softPreferences: String(formData.get("softPreferences") ?? ""),
-        broadeningOrder: String(formData.get("broadeningOrder") ?? ""),
-        thingsToAvoid: String(formData.get("hardFilters") ?? ""),
-        profileSummary: String(formData.get("profileSummary") ?? ""),
-        idealInternshipDescription: String(formData.get("idealInternshipDescription") ?? "")
+        targetRoles: rolesWanted,
+        rolePriority: rolesWanted,
+        targetIndustries,
+        targetCountries: locationsWanted,
+        targetCities: "",
+        strictCities: "",
+        acceptableCountries: "",
+        remoteAccepted: String(remoteAccepted),
+        languagesSpoken,
+        internshipStartDate: timing,
+        internshipDuration: timing,
+        durationStrictness,
+        companiesAlreadyAppliedTo,
+        hardFilters,
+        softPreferences,
+        broadeningOrder: broadeningOrder.join(", "),
+        thingsToAvoid: hardFilters,
+        profileSummary,
+        idealInternshipDescription: generatedIdeal
       }
     };
 
@@ -130,8 +160,8 @@ export function PremiumSearchForm({ reportId, accessToken, initialInputs, paymen
 
       <div>
         <p className="text-sm font-semibold uppercase text-signal">Your search criteria</p>
-        <h2 className="mt-2 text-2xl font-black text-ink">Build the search brief</h2>
-        <p className="mt-2 text-sm leading-6 text-ink/70">Answer like you would brief a strong internship researcher. The more precise the brief, the better the live search.</p>
+        <h2 className="mt-2 text-2xl font-black text-ink">Spend 2 minutes here, not 5 hours on LinkedIn</h2>
+        <p className="mt-2 text-sm leading-6 text-ink/70">Give us the essentials. We turn them into a structured search brief for the live premium search.</p>
         {showTestPreset ? (
           <button type="button" onClick={applyTestPreset} className="mt-4 inline-flex button-secondary">
             Use test preset
@@ -139,63 +169,62 @@ export function PremiumSearchForm({ reportId, accessToken, initialInputs, paymen
         ) : null}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <label className={`${labelClass} md:col-span-2`}>What roles are you looking for?
-          <input name="targetRoles" className={fieldClass} value={targetRoles} onChange={(event) => setTargetRoles(event.target.value)} placeholder="Marketing, business development, partnerships, events..." required />
+      <div className="grid gap-4">
+        <label className={labelClass}>What kind of internship are you looking for?
+          <input name="targetRoles" className={fieldClass} value={rolesWanted} onChange={(event) => setRolesWanted(event.target.value)} placeholder="Marketing, Business Development, Partnerships, Events..." required />
         </label>
-        <label className={`${labelClass} md:col-span-2`}>Rank your top role families
-          <input name="rolePriority" className={fieldClass} value={rolePriority} onChange={(event) => setRolePriority(event.target.value)} placeholder="1. Partnerships, 2. Business development, 3. Marketing" />
+        <label className={labelClass}>Where do you want to work?
+          <input name="locationsWanted" className={fieldClass} value={locationsWanted} onChange={(event) => setLocationsWanted(event.target.value)} placeholder="Paris, Amsterdam, Spain, Switzerland..." required />
         </label>
-        <label className={`${labelClass} md:col-span-2`}>Target industries
-          <input name="targetIndustries" className={fieldClass} value={targetIndustries} onChange={(event) => setTargetIndustries(event.target.value)} placeholder="Sports, luxury, SaaS, events, consumer brands..." />
+        <label className={labelClass}>Which languages can you work in?
+          <input name="languagesSpoken" className={fieldClass} value={languagesSpoken} onChange={(event) => setLanguagesSpoken(event.target.value)} placeholder="French, English, Spanish..." required />
         </label>
-        <label className={labelClass}>Acceptable countries
-          <input name="targetCountries" className={fieldClass} value={targetCountries} onChange={(event) => setTargetCountries(event.target.value)} placeholder="France, Switzerland, Netherlands..." required />
+        <label className={labelClass}>When can you start, and for how long?
+          <input name="timing" className={fieldClass} value={timing} onChange={(event) => setTiming(event.target.value)} placeholder="September 2026, 6 months" required />
         </label>
-        <label className={labelClass}>Strict or preferred cities
-          <input name="targetCities" className={fieldClass} value={targetCities} onChange={(event) => setTargetCities(event.target.value)} placeholder="Paris, Geneva, Amsterdam..." />
-        </label>
-        <label className={`${labelClass} md:col-span-2`}>
-          <span className="flex items-center gap-3 rounded-2xl border border-line bg-white px-4 py-3 font-bold text-ink">
-            <input name="remoteAccepted" type="checkbox" checked={remoteAccepted} onChange={(event) => setRemoteAccepted(event.target.checked)} className="h-4 w-4 accent-emerald-600" />
-            Remote or hybrid roles are acceptable
-          </span>
-        </label>
-        <label className={`${labelClass} md:col-span-2`}>Which languages can you work in?
-          <input name="languagesSpoken" className={fieldClass} value={languagesSpoken} onChange={(event) => setLanguagesSpoken(event.target.value)} placeholder="French fluent, English professional, Spanish intermediate..." required />
-        </label>
-        <label className={labelClass}>Internship start date
-          <input name="internshipStartDate" className={fieldClass} value={internshipStartDate} onChange={(event) => setInternshipStartDate(event.target.value)} placeholder="September 2026, flexible" />
-        </label>
-        <label className={labelClass}>Internship duration
-          <input name="internshipDuration" className={fieldClass} value={internshipDuration} onChange={(event) => setInternshipDuration(event.target.value)} placeholder="4-6 months" />
-        </label>
-        <label className={labelClass}>Duration strictness
-          <select name="durationStrictness" className={fieldClass} value={durationStrictness} onChange={(event) => setDurationStrictness(event.target.value as "strict" | "flexible")}>
-            <option value="flexible">Flexible</option>
-            <option value="strict">Strict</option>
-          </select>
-        </label>
-        <label className={labelClass}>Companies already applied to
-          <input name="companiesAlreadyAppliedTo" className={fieldClass} value={companiesAlreadyAppliedTo} onChange={(event) => setCompaniesAlreadyAppliedTo(event.target.value)} placeholder="Nike, L'Oréal, Chanel..." />
+        <label className={labelClass}>Anything we should avoid?
+          <textarea name="hardFilters" className={`${fieldClass} min-h-24`} value={hardFilters} onChange={(event) => setHardFilters(event.target.value)} placeholder="No finance, no unpaid roles, no German, no data analyst..." />
         </label>
       </div>
 
-      <label className={labelClass}>What should we absolutely avoid?
-        <textarea name="hardFilters" className={`${fieldClass} min-h-28`} value={hardFilters} onChange={(event) => setHardFilters(event.target.value)} placeholder="No Dutch-required roles, no pure data analytics, no accounting, no coding-heavy roles..." />
-      </label>
-      <label className={labelClass}>Soft preferences
-        <textarea name="softPreferences" className={`${fieldClass} min-h-24`} value={softPreferences} onChange={(event) => setSoftPreferences(event.target.value)} placeholder="Prestigious brands, client-facing role, sports context, startup environment..." />
-      </label>
-      <label className={labelClass}>If we cannot find 3 exact matches, what should we broaden first?
-        <textarea name="broadeningOrder" className={`${fieldClass} min-h-24`} value={broadeningOrder} onChange={(event) => setBroadeningOrder(event.target.value)} placeholder="1. Nearby cities, 2. Adjacent roles, 3. Nearby countries, 4. Broader industries" />
-      </label>
-      <label className={labelClass}>Profile / CV summary
-        <textarea name="profileSummary" className={`${fieldClass} min-h-28`} value={profileSummary} onChange={(event) => setProfileSummary(event.target.value)} placeholder="Your school, experience, strengths and anything that makes your profile stand out." />
-      </label>
-      <label className={labelClass}>Ideal internship / dream role
-        <textarea name="idealInternshipDescription" className={`${fieldClass} min-h-28`} value={idealInternshipDescription} onChange={(event) => setIdealInternshipDescription(event.target.value)} placeholder="What would make an internship genuinely exciting enough to open?" />
-      </label>
+      <details className="rounded-2xl border border-line bg-white/70 p-4">
+        <summary className="cursor-pointer text-sm font-black text-ink">Want sharper results? Add advanced filters.</summary>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <label className={`${labelClass} md:col-span-2`}>Preferred industries
+            <input name="targetIndustries" className={fieldClass} value={targetIndustries} onChange={(event) => setTargetIndustries(event.target.value)} placeholder="Sports, luxury, SaaS, events, consumer brands..." />
+          </label>
+          <label className={`${labelClass} md:col-span-2`}>Companies already applied to
+            <input name="companiesAlreadyAppliedTo" className={fieldClass} value={companiesAlreadyAppliedTo} onChange={(event) => setCompaniesAlreadyAppliedTo(event.target.value)} placeholder="Nike, L'Oreal, Chanel..." />
+          </label>
+          <label className={`${labelClass} md:col-span-2`}>
+            <span className="flex items-center gap-3 rounded-2xl border border-line bg-white px-4 py-3 font-bold text-ink">
+              <input name="remoteAccepted" type="checkbox" checked={remoteAccepted} onChange={(event) => setRemoteAccepted(event.target.checked)} className="h-4 w-4 accent-emerald-600" />
+              Remote or hybrid accepted
+            </span>
+          </label>
+          <label className={labelClass}>Duration flexibility
+            <select name="durationStrictness" className={fieldClass} value={durationStrictness} onChange={(event) => setDurationStrictness(event.target.value as "strict" | "flexible")}>
+              <option value="flexible">Flexible</option>
+              <option value="strict">Strict</option>
+            </select>
+          </label>
+          <label className={`${labelClass} md:col-span-2`}>Soft preferences
+            <textarea name="softPreferences" className={`${fieldClass} min-h-24`} value={softPreferences} onChange={(event) => setSoftPreferences(event.target.value)} placeholder="Prestigious brands, client-facing role, sports context, startup environment..." />
+          </label>
+          <div className="grid gap-3 md:col-span-2">
+            <p className="text-sm font-bold text-ink">Expansion preference</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {expansionOptions.map((option) => (
+                <label key={option} className="flex items-center gap-3 rounded-2xl border border-line bg-white px-4 py-3 text-sm font-bold text-ink">
+                  <input type="checkbox" checked={expansionPreference.includes(option)} onChange={() => toggleExpansionPreference(option)} className="h-4 w-4 accent-emerald-600" />
+                  {option}
+                </label>
+              ))}
+            </div>
+            <p className="text-xs leading-5 text-ink/60">If you skip this, we broaden in this order: nearby cities, broader industries, adjacent business roles, then recognized companies.</p>
+          </div>
+        </div>
+      </details>
 
       <button type="submit" disabled={loading} className="button-primary w-full sm:w-auto">
         {loading ? "Saving and opening checkout..." : "Continue to payment — €5.90"}
