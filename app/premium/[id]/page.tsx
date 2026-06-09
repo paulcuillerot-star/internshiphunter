@@ -6,6 +6,7 @@ import { OfferCard } from "@/components/OfferCard";
 import { PremiumCheckoutConfirmer } from "@/components/PremiumCheckoutConfirmer";
 import { PremiumSearchForm } from "@/components/PremiumSearchForm";
 import { PremiumSearchRunner } from "@/components/PremiumSearchRunner";
+import { PremiumSecondSearchOptions } from "@/components/PremiumSecondSearchOptions";
 import { getReportIfAuthorized } from "@/lib/store";
 import { getStripeClient } from "@/lib/stripe";
 import type { ScoredInternshipOffer } from "@/lib/types";
@@ -24,6 +25,14 @@ type PremiumSearchParams = {
   token?: string;
 };
 
+type NoStrongSummary = {
+  offersDetected: string;
+  offersRejected: string;
+  reasons: string;
+  finalStrongMatches: string;
+  strategy?: string;
+};
+
 function refreshHref(reportId: string, token?: string) {
   const params = new URLSearchParams();
   if (token) params.set("token", token);
@@ -40,7 +49,11 @@ function refillHref(reportId: string, token?: string) {
 }
 
 function retryWasUsed(errorMessage?: string) {
-  return Boolean(errorMessage?.includes("[retry-used]"));
+  return Boolean(errorMessage?.includes("[retry-used]") || errorMessage?.includes("[second-search-used]"));
+}
+
+function isNoStrongMatchesOutcome(errorMessage?: string) {
+  return Boolean(errorMessage?.includes("[no-strong-matches]"));
 }
 
 function isClearlyUnrecoverablePremiumError(errorMessage?: string) {
@@ -50,6 +63,18 @@ function isClearlyUnrecoverablePremiumError(errorMessage?: string) {
 
 function canRetryPremiumSearch(errorMessage?: string) {
   return !retryWasUsed(errorMessage) && !isClearlyUnrecoverablePremiumError(errorMessage);
+}
+
+function parseNoStrongSummary(errorMessage?: string): NoStrongSummary {
+  const text = errorMessage ?? "";
+  const strategy = text.match(/\[strategy:([^\]]+)\]/)?.[1]?.replace(/_/g, " ");
+  return {
+    offersDetected: text.match(/offers_detected=([^;]+)/)?.[1]?.trim() ?? "Not available",
+    offersRejected: text.match(/offers_rejected=([^;]+)/)?.[1]?.trim() ?? "Not available",
+    reasons: text.match(/main_rejection_reasons=([^;]+)/)?.[1]?.replace(/_/g, " ").trim() ?? "Quality filters",
+    finalStrongMatches: text.match(/final_strong_matches=([^.;]+)/)?.[1]?.trim() ?? "0",
+    strategy
+  };
 }
 
 function capturePaidMissingInputs(reportId: string, isPaid: boolean, premiumSearchStatus: string, offerCount: number) {
@@ -216,6 +241,41 @@ function PremiumOffers({ reportId, offers }: { reportId: string; offers: ScoredI
         3 curated internship leads when available. If your criteria are narrow, close alternatives may be included and clearly labelled.
       </p>
       <div className="mt-8 grid gap-5">{offers.map((offer) => <OfferCard key={offer.id} offer={offer} reportId={reportId} premium />)}</div>
+    </section>
+  );
+}
+
+function NoStrongMatchesOutcome({ reportId, token, errorMessage, retryAvailable }: { reportId: string; token?: string; errorMessage?: string; retryAvailable: boolean }) {
+  const summary = parseNoStrongSummary(errorMessage);
+  const finalOutcome = !retryAvailable;
+
+  return (
+    <section className="section">
+      <div className="max-w-3xl rounded-lg border border-emerald-100 bg-white p-8 shadow-soft">
+        <p className="text-sm font-semibold uppercase text-signal">Premium search outcome</p>
+        <h1 className="mt-3 text-4xl font-bold text-ink">{finalOutcome ? "No regrets. We checked the market." : "No strong matches found"}</h1>
+        <p className="mt-4 text-ink/70">
+          {finalOutcome
+            ? "Nothing strong fits your criteria right now. We searched and filtered out weak, expired, unreachable, language-incompatible or irrelevant offers."
+            : "We checked the market and filtered out weak, expired, unreachable, language-incompatible or irrelevant offers. This is a search outcome, not a technical failure."}
+        </p>
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-md bg-mist p-4"><p className="text-xs font-bold uppercase text-ink/45">Offers detected</p><p className="mt-2 text-2xl font-black text-ink">{summary.offersDetected}</p></div>
+          <div className="rounded-md bg-mist p-4"><p className="text-xs font-bold uppercase text-ink/45">Offers rejected</p><p className="mt-2 text-2xl font-black text-ink">{summary.offersRejected}</p></div>
+          <div className="rounded-md bg-mist p-4"><p className="text-xs font-bold uppercase text-ink/45">Strong matches</p><p className="mt-2 text-2xl font-black text-ink">{summary.finalStrongMatches}</p></div>
+          <div className="rounded-md bg-mist p-4"><p className="text-xs font-bold uppercase text-ink/45">Attempt</p><p className="mt-2 text-lg font-black text-ink">{finalOutcome ? "Final" : "1 of 2"}</p></div>
+        </div>
+        <p className="mt-4 rounded-md bg-emerald-50 p-3 text-sm leading-6 text-emerald-900">Main rejection reasons: {summary.reasons}</p>
+        {summary.strategy ? <p className="mt-3 rounded-md bg-ink/5 p-3 text-sm text-ink/70">Second search strategy used: {summary.strategy}</p> : null}
+        {retryAvailable ? (
+          <PremiumSecondSearchOptions reportId={reportId} accessToken={token} />
+        ) : (
+          <p className="mt-6 rounded-md bg-mist p-4 text-sm leading-6 text-ink/70">
+            Your exact internship does not seem to be out there today. Go touch grass, then come back when you want to try a broader search.
+          </p>
+        )}
+        <p className="mt-4 text-xs font-semibold text-ink/45">Report id: {reportId}</p>
+      </div>
     </section>
   );
 }
@@ -412,6 +472,10 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
   }
 
   if (premiumStatus === "failed") {
+    if (isNoStrongMatchesOutcome(report.premiumSearchError)) {
+      return <NoStrongMatchesOutcome reportId={report.id} token={report.accessToken} errorMessage={report.premiumSearchError} retryAvailable={retryAvailable} />;
+    }
+
     if (unlocked && report.premiumOffers.length > 0) {
       captureFailedPremiumReportWithOffers({
         reportId: report.id,
@@ -426,24 +490,15 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
     return (
       <section className="section">
         <div className="max-w-2xl rounded-lg border border-amber-100 bg-white p-8 shadow-soft">
-          <p className="text-sm font-semibold uppercase text-amber-600">Premium search needs a broader pass</p>
-          <h1 className="mt-3 text-4xl font-bold text-ink">We couldn&apos;t find strong enough leads yet</h1>
+          <p className="text-sm font-semibold uppercase text-amber-600">Premium search issue</p>
+          <h1 className="mt-3 text-4xl font-bold text-ink">The live search hit a technical issue</h1>
           <p className="mt-4 text-ink/70">
-            Your payment is recorded. The first search was too narrow or did not find enough high-quality direct opportunities. You can retry once with broader criteria at no extra cost.
+            Your payment is recorded, but this looks like a technical search problem rather than a market outcome. Please contact support with this report id if refreshing does not resolve it.
           </p>
           <p className="mt-4 rounded-md bg-amber-50 p-3 text-sm text-amber-700">Report id: {report.id}</p>
-          {retryAvailable ? (
-            <>
-              <p className="mt-4 text-ink/70">
-                We may broaden nearby locations and adjacent roles, but we will keep language compatibility and excluded companies strict.
-              </p>
-              <PremiumSearchRunner reportId={report.id} accessToken={report.accessToken} retry autoStart={false} />
-            </>
-          ) : (
-            <p className="mt-4 text-ink/70">
-              This search cannot be retried automatically. Please contact support with this report id so we can review it manually.
-            </p>
-          )}
+          <a href={refreshHref(report.id, report.accessToken)} className="mt-6 inline-flex button-secondary">
+            Refresh status
+          </a>
         </div>
       </section>
     );

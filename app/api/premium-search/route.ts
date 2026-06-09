@@ -8,12 +8,24 @@ import type { CandidateProfile, InternshipSearchReport, PremiumLanguage, Premium
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+type BroadeningStrategy = "broaden_locations" | "broaden_roles" | "relax_one_hard_filter" | "include_nearby_industries" | "broader_company_sources";
+
+type RejectionSummary = {
+  offersDetected: number;
+  offersRejected: number;
+  reasons: string[];
+};
+
 const retryUsedMarker = "[retry-used]";
+const noStrongMatchesMarker = "[no-strong-matches]";
+const secondSearchUsedMarker = "[second-search-used]";
 const verySoonDeadlineRisk = "Deadline is very soon; apply immediately.";
 const missingDeadlineRisk = "Deadline not listed; verify before applying.";
 const contentUnverifiedRisk = "Could not fully verify page content; verify before applying.";
 const linkValidationTimeoutMs = 8_000;
 const stalePostingYears = ["2019", "2020", "2021", "2022", "2023", "2024"];
+
+const broadeningStrategies: BroadeningStrategy[] = ["broaden_locations", "broaden_roles", "relax_one_hard_filter", "include_nearby_industries", "broader_company_sources"];
 
 const directApplicationHosts = [
   "greenhouse.io",
@@ -31,14 +43,23 @@ const directApplicationHosts = [
   "homerun.co"
 ];
 
+function normalizeBroadeningStrategy(value?: string): BroadeningStrategy | undefined {
+  return broadeningStrategies.includes(value as BroadeningStrategy) ? (value as BroadeningStrategy) : undefined;
+}
+
 function retryWasUsed(errorMessage?: string) {
-  return Boolean(errorMessage?.includes(retryUsedMarker));
+  return Boolean(errorMessage?.includes(retryUsedMarker) || errorMessage?.includes(secondSearchUsedMarker));
+}
+
+function isNoStrongMatchesOutcome(errorMessage?: string) {
+  return Boolean(errorMessage?.includes(noStrongMatchesMarker));
 }
 
 function premiumErrorType(errorMessage?: string) {
   if (!errorMessage) return "none";
+  if (isNoStrongMatchesOutcome(errorMessage)) return "no_strong_matches";
   if (/payment required|unauthorized|forbidden|missing report|missing premium criteria|premium criteria are required|token|report access/i.test(errorMessage)) return "unrecoverable";
-  if (/zero valid|No language-compatible|no strong leads/i.test(errorMessage)) return "zero_results";
+  if (/zero valid|No language-compatible|no strong leads|weak aggregator|after link and deadline filtering/i.test(errorMessage)) return "zero_results";
   if (/OpenAI|web_search|JSON|parse|timeout|network|rate/i.test(errorMessage)) return "recoverable_search_error";
   return "technical_error";
 }
@@ -51,11 +72,12 @@ function canRetryPremiumSearch(report: InternshipSearchReport) {
   return report.premiumOffers.length === 0 && !retryWasUsed(report.premiumSearchError) && !isClearlyUnrecoverablePremiumError(report.premiumSearchError);
 }
 
-function sentryContext(report: InternshipSearchReport, premiumInputs?: PremiumSearchInputs, retry = false) {
+function sentryContext(report: InternshipSearchReport, premiumInputs?: PremiumSearchInputs, retry = false, broadeningStrategy?: BroadeningStrategy) {
   return {
     reportId: report.id,
     profileId: report.profileId,
     retry,
+    broadeningStrategy,
     status: report.premiumSearchStatus ?? "not_started",
     hasOffers: report.premiumOffers.length > 0,
     errorType: premiumErrorType(report.premiumSearchError),
@@ -70,24 +92,26 @@ function sentryContext(report: InternshipSearchReport, premiumInputs?: PremiumSe
   };
 }
 
-function capturePremiumSearchMessage(message: string, report: InternshipSearchReport, premiumInputs?: PremiumSearchInputs, level: "info" | "warning" | "error" = "info", retry = false) {
+function capturePremiumSearchMessage(message: string, report: InternshipSearchReport, premiumInputs?: PremiumSearchInputs, level: "info" | "warning" | "error" = "info", retry = false, broadeningStrategy?: BroadeningStrategy) {
   Sentry.withScope((scope) => {
     scope.setTag("feature", "premium-search");
     scope.setTag("reportId", report.id);
     scope.setTag("profileId", report.profileId);
     scope.setTag("retry", String(retry));
-    scope.setContext("premium_search", sentryContext(report, premiumInputs, retry));
+    if (broadeningStrategy) scope.setTag("broadeningStrategy", broadeningStrategy);
+    scope.setContext("premium_search", sentryContext(report, premiumInputs, retry, broadeningStrategy));
     Sentry.captureMessage(message, level);
   });
 }
 
-function capturePremiumSearchException(error: unknown, report: InternshipSearchReport, premiumInputs?: PremiumSearchInputs, retry = false) {
+function capturePremiumSearchException(error: unknown, report: InternshipSearchReport, premiumInputs?: PremiumSearchInputs, retry = false, broadeningStrategy?: BroadeningStrategy) {
   Sentry.withScope((scope) => {
     scope.setTag("feature", "premium-search");
     scope.setTag("reportId", report.id);
     scope.setTag("profileId", report.profileId);
     scope.setTag("retry", String(retry));
-    scope.setContext("premium_search", sentryContext(report, premiumInputs, retry));
+    if (broadeningStrategy) scope.setTag("broadeningStrategy", broadeningStrategy);
+    scope.setContext("premium_search", sentryContext(report, premiumInputs, retry, broadeningStrategy));
     Sentry.captureException(error);
   });
 }
@@ -159,8 +183,13 @@ function normalizeLanguages(inputs: PremiumSearchInputs): PremiumLanguage[] {
   return inputs.languagesSpoken.map((language) => ({ language, level: "Working proficiency" }));
 }
 
-function buildPremiumSearchBrief(inputs: PremiumSearchInputs): PremiumSearchBrief {
+function buildPremiumSearchBrief(inputs: PremiumSearchInputs, broadeningStrategy?: BroadeningStrategy): PremiumSearchBrief {
   const hardFilters = inputs.hardFilters?.length ? inputs.hardFilters : inputs.thingsToAvoid ? [inputs.thingsToAvoid] : [];
+  const selectedBroadeningOrder = broadeningStrategy
+    ? [`Selected second-search strategy: ${broadeningStrategy.replace(/_/g, " ")}`]
+    : inputs.broadeningOrder?.length
+      ? inputs.broadeningOrder
+      : ["nearby cities", "adjacent roles in the same career family", "nearby countries or strong hubs", "broader high-signal companies"];
 
   return {
     targetRoles: inputs.targetRoles ?? [],
@@ -176,16 +205,14 @@ function buildPremiumSearchBrief(inputs: PremiumSearchInputs): PremiumSearchBrie
     companiesAlreadyAppliedTo: inputs.companiesAlreadyAppliedTo,
     hardFilters,
     softPreferences: inputs.softPreferences ?? [],
-    broadeningOrder: inputs.broadeningOrder?.length
-      ? inputs.broadeningOrder
-      : ["nearby cities", "adjacent roles in the same career family", "nearby countries or strong hubs", "broader high-signal companies"],
+    broadeningOrder: selectedBroadeningOrder,
     profileSummary: inputs.profileSummary,
     idealInternshipDescription: inputs.idealInternshipDescription
   };
 }
 
-function mergePremiumProfile(profile: CandidateProfile, premiumInputs: PremiumSearchInputs): CandidateProfile {
-  const searchBrief = buildPremiumSearchBrief(premiumInputs);
+function mergePremiumProfile(profile: CandidateProfile, premiumInputs: PremiumSearchInputs, broadeningStrategy?: BroadeningStrategy): CandidateProfile {
+  const searchBrief = buildPremiumSearchBrief(premiumInputs, broadeningStrategy);
   const languageNames = searchBrief.languages.map((item) => item.language).filter(Boolean);
   const desiredRoles = unique([...searchBrief.rolePriority, ...searchBrief.targetRoles]);
   const thingsToAvoid = unique([premiumInputs.thingsToAvoid, ...searchBrief.hardFilters]).join("\n");
@@ -276,31 +303,40 @@ function withRisk(offer: ScoredInternshipOffer, risk: string): ScoredInternshipO
 }
 
 function filterPremiumDeadlineQuality(offers: ScoredInternshipOffer[], reportId: string) {
-  return offers.flatMap((offer) => {
+  const kept: ScoredInternshipOffer[] = [];
+  const reasons: string[] = [];
+
+  for (const offer of offers) {
     const deadline = offer.deadline?.trim() ?? "";
     const parsedDeadline = parseDeadline(deadline);
 
     if (!parsedDeadline) {
-      return [{ ...withRisk(offer, missingDeadlineRisk), deadline: deadline || "Deadline not listed" }];
+      kept.push({ ...withRisk(offer, missingDeadlineRisk), deadline: deadline || "Deadline not listed" });
+      continue;
     }
 
     const daysLeft = daysUntilDeadline(parsedDeadline);
     if (daysLeft <= 0) {
+      reasons.push("deadline_today_or_past");
       captureDeadlineRejection(reportId, offer, "deadline_today_or_past");
-      return [];
+      continue;
     }
 
     if (daysLeft === 1) {
       if (isExceptionalTomorrowOffer(offer)) {
-        return [withRisk(offer, verySoonDeadlineRisk)];
+        kept.push(withRisk(offer, verySoonDeadlineRisk));
+        continue;
       }
 
+      reasons.push("deadline_tomorrow_not_exceptional");
       captureDeadlineRejection(reportId, offer, "deadline_tomorrow_not_exceptional");
-      return [];
+      continue;
     }
 
-    return [offer];
-  });
+    kept.push(offer);
+  }
+
+  return { offers: kept, reasons };
 }
 
 function normalizePageText(value: string) {
@@ -392,35 +428,35 @@ async function validateOfferLink(offer: ScoredInternshipOffer, reportId: string)
 
     if (status >= 400) {
       captureLinkRejection(reportId, offer, "unreachable_url", status);
-      return undefined;
+      return { offer: undefined, reason: "unreachable_url" };
     }
 
     if (hasClosedOrArchivedText(textForChecks)) {
       captureLinkRejection(reportId, offer, "archived_or_closed", status);
-      return undefined;
+      return { offer: undefined, reason: "archived_or_closed" };
     }
 
     if (hasStalePostingYear(textForChecks)) {
       captureLinkRejection(reportId, offer, "stale_posting", status);
-      return undefined;
+      return { offer: undefined, reason: "stale_posting" };
     }
 
     if (isGenericDestination(finalUrl) && !pageHasOfferEvidence(page.text, offer)) {
       captureLinkRejection(reportId, offer, "generic_redirect", status);
-      return undefined;
+      return { offer: undefined, reason: "generic_redirect" };
     }
 
     if (!pageHasOfferEvidence(page.text, offer)) {
       if (trustedDirectHost && reachable) {
         captureLinkWarning(reportId, offer, "content_unverified_trusted_ats", status);
-        return withRisk(finalUrl === offer.url ? offer : { ...offer, url: finalUrl }, contentUnverifiedRisk);
+        return { offer: withRisk(finalUrl === offer.url ? offer : { ...offer, url: finalUrl }, contentUnverifiedRisk) };
       }
 
       captureLinkRejection(reportId, offer, "content_mismatch", status);
-      return undefined;
+      return { offer: undefined, reason: "content_mismatch" };
     }
 
-    return finalUrl === offer.url ? offer : { ...offer, url: finalUrl };
+    return { offer: finalUrl === offer.url ? offer : { ...offer, url: finalUrl } };
   } catch (error) {
     captureLinkRejection(reportId, offer, "unreachable_url");
     Sentry.addBreadcrumb({
@@ -429,24 +465,58 @@ async function validateOfferLink(offer: ScoredInternshipOffer, reportId: string)
       message: "Premium offer link validation failed",
       data: { reportId, company: offer.company, title: offer.title, urlHost: urlHost(offer.url), error: error instanceof Error ? error.message : "unknown" }
     });
-    return undefined;
+    return { offer: undefined, reason: "unreachable_url" };
   }
 }
 
 async function filterPremiumLinkQuality(offers: ScoredInternshipOffer[], reportId: string) {
   const validated: ScoredInternshipOffer[] = [];
+  const reasons: string[] = [];
 
   for (const offer of offers) {
     const checked = await validateOfferLink(offer, reportId);
-    if (checked) validated.push(checked);
+    if (checked.offer) validated.push(checked.offer);
+    if (checked.reason) reasons.push(checked.reason);
   }
 
-  return validated;
+  return { offers: validated, reasons };
+}
+
+function mainReasons(reasons: string[]) {
+  return Array.from(new Set(reasons)).slice(0, 5);
+}
+
+function noStrongMatchesMessage(summary: RejectionSummary, retryRequested: boolean, broadeningStrategy?: BroadeningStrategy) {
+  const markers = [noStrongMatchesMarker, retryRequested ? secondSearchUsedMarker : "", broadeningStrategy ? `[strategy:${broadeningStrategy}]` : ""].filter(Boolean).join(" ");
+  const reasons = summary.reasons.length ? summary.reasons.join(", ") : "quality_filters";
+  return `${markers} No strong matches found. offers_detected=${summary.offersDetected}; offers_rejected=${summary.offersRejected}; main_rejection_reasons=${reasons}; final_strong_matches=0.`;
+}
+
+function isNoStrongMatchesError(message: string) {
+  return /No language-compatible|zero valid|weak aggregator|after link and deadline filtering|No strong matches found/i.test(message);
+}
+
+function captureNoStrongMatches(report: InternshipSearchReport, premiumInputs: PremiumSearchInputs, summary: RejectionSummary, retryRequested: boolean, broadeningStrategy?: BroadeningStrategy) {
+  Sentry.withScope((scope) => {
+    scope.setTag("feature", "premium-search");
+    scope.setTag("reportId", report.id);
+    scope.setTag("retry", String(retryRequested));
+    if (broadeningStrategy) scope.setTag("broadeningStrategy", broadeningStrategy);
+    scope.setContext("premium_no_strong_matches", {
+      ...sentryContext(report, premiumInputs, retryRequested, broadeningStrategy),
+      offersDetected: summary.offersDetected,
+      offersRejected: summary.offersRejected,
+      mainRejectionReasons: summary.reasons,
+      finalStrongMatches: 0
+    });
+    Sentry.captureMessage("Premium search found no strong matches", "info");
+  });
 }
 
 export async function POST(request: Request) {
-  const { reportId, token, retry } = (await request.json()) as { reportId?: string; token?: string; retry?: boolean };
+  const { reportId, token, retry, broadeningStrategy } = (await request.json()) as { reportId?: string; token?: string; retry?: boolean; broadeningStrategy?: string };
   const retryRequested = Boolean(retry);
+  const selectedBroadeningStrategy = normalizeBroadeningStrategy(broadeningStrategy);
   if (!reportId) return NextResponse.json({ error: "Missing reportId." }, { status: 400 });
 
   const report = await getReportIfAuthorized(reportId, token);
@@ -464,8 +534,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Premium criteria are required before running premium search." }, { status: 400 });
   }
 
+  if (retryRequested && !selectedBroadeningStrategy) {
+    return NextResponse.json({ error: "Choose what to broaden before launching the second search." }, { status: 400 });
+  }
+
   if (status === "pending_payment") {
-    capturePremiumSearchMessage("Premium search blocked because payment is still pending", report, premiumInputs, "warning", retryRequested);
+    capturePremiumSearchMessage("Premium search blocked because payment is still pending", report, premiumInputs, "warning", retryRequested, selectedBroadeningStrategy);
     return NextResponse.json({ error: "Payment confirmation is still pending.", status: "pending_payment", offerCount: report.premiumOffers.length }, { status: 409 });
   }
 
@@ -474,7 +548,7 @@ export async function POST(request: Request) {
   }
 
   if (status === "running") {
-    capturePremiumSearchMessage("Premium search blocked because already running", report, premiumInputs, "warning", retryRequested);
+    capturePremiumSearchMessage("Premium search blocked because already running", report, premiumInputs, "warning", retryRequested, selectedBroadeningStrategy);
     return NextResponse.json({ status: "running", offerCount: report.premiumOffers.length });
   }
 
@@ -485,9 +559,11 @@ export async function POST(request: Request) {
       capturePremiumSearchMessage("Premium search failed state returned", report, premiumInputs, "warning");
       return NextResponse.json(
         {
-          error: retryAvailable
-            ? "Premium search did not deliver strong leads. You can retry once with broader criteria at no extra cost."
-            : "Premium search failed. Please contact support with this report id.",
+          error: isNoStrongMatchesOutcome(report.premiumSearchError)
+            ? "No strong matches found. Choose what to broaden if you want one second search."
+            : retryAvailable
+              ? "Premium search did not deliver strong leads. You can retry once with broader criteria at no extra cost."
+              : "Premium search failed. Please contact support with this report id.",
           retryAvailable
         },
         { status: 409 }
@@ -495,44 +571,64 @@ export async function POST(request: Request) {
     }
 
     if (!retryAvailable) {
-      capturePremiumSearchMessage("Premium search retry blocked", report, premiumInputs, "warning", true);
-      return NextResponse.json({ error: "Premium search retry is not available. Please contact support with this report id." }, { status: 409 });
+      capturePremiumSearchMessage("Premium search retry blocked", report, premiumInputs, "warning", true, selectedBroadeningStrategy);
+      return NextResponse.json({ error: "A second premium search has already been used for this report." }, { status: 409 });
     }
   }
 
   if (status !== "ready_to_run" && status !== "not_started" && !(status === "failed" && retryRequested)) {
-    capturePremiumSearchMessage("Premium search blocked because status is not runnable", report, premiumInputs, "warning", retryRequested);
+    capturePremiumSearchMessage("Premium search blocked because status is not runnable", report, premiumInputs, "warning", retryRequested, selectedBroadeningStrategy);
     return NextResponse.json({ error: "Premium search is not ready to run.", status, offerCount: report.premiumOffers.length }, { status: 409 });
   }
 
+  let rejectionSummary: RejectionSummary = { offersDetected: 0, offersRejected: 0, reasons: [] };
+
   try {
     await updateReportPremiumSearchStatus(report.id, "running");
-    capturePremiumSearchMessage("Premium search started", { ...report, premiumSearchStatus: "running" }, premiumInputs, "info", retryRequested);
+    capturePremiumSearchMessage("Premium search started", { ...report, premiumSearchStatus: "running" }, premiumInputs, "info", retryRequested, selectedBroadeningStrategy);
 
     const profile = await getProfile(report.profileId);
-    const premiumProfile = mergePremiumProfile(profile, premiumInputs);
-    const result = await webInternshipSearch(premiumProfile, premiumProfile.cvText, { retryMode: retryRequested });
-    const linkCheckedOffers = await filterPremiumLinkQuality(result.offers, report.id);
-    const offers = filterPremiumDeadlineQuality(linkCheckedOffers, report.id).slice(0, 3).map((offer) => ({ ...offer, isPremium: true }));
+    const premiumProfile = mergePremiumProfile(profile, premiumInputs, selectedBroadeningStrategy);
+    const result = await webInternshipSearch(premiumProfile, premiumProfile.cvText, { retryMode: retryRequested, broadeningStrategy: selectedBroadeningStrategy });
+    const linkChecked = await filterPremiumLinkQuality(result.offers, report.id);
+    const deadlineChecked = filterPremiumDeadlineQuality(linkChecked.offers, report.id);
+    const offers = deadlineChecked.offers.slice(0, 3).map((offer) => ({ ...offer, isPremium: true }));
+    rejectionSummary = {
+      offersDetected: result.offers.length,
+      offersRejected: result.offers.length - offers.length,
+      reasons: mainReasons([...linkChecked.reasons, ...deadlineChecked.reasons])
+    };
 
     if (!offers.length) {
-      throw new Error("Premium live search returned zero valid opportunities after link and deadline filtering.");
+      throw new Error("No strong matches found after link and deadline filtering.");
     }
 
     await updateReportPremiumOffers(report.id, offers);
-    capturePremiumSearchMessage("Premium search completed", { ...report, premiumOffers: offers, premiumSearchStatus: "completed" }, premiumInputs, "info", retryRequested);
+    capturePremiumSearchMessage("Premium search completed", { ...report, premiumOffers: offers, premiumSearchStatus: "completed" }, premiumInputs, "info", retryRequested, selectedBroadeningStrategy);
     return NextResponse.json({ status: "completed", offerCount: offers.length });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown premium search error";
+    const noStrongMatches = isNoStrongMatchesError(message);
+
+    if (noStrongMatches) {
+      const fallbackSummary = rejectionSummary.offersDetected || rejectionSummary.reasons.length
+        ? rejectionSummary
+        : { offersDetected: 0, offersRejected: 0, reasons: ["search_quality_filters"] };
+      const storedMessage = noStrongMatchesMessage(fallbackSummary, retryRequested, selectedBroadeningStrategy);
+      await updateReportPremiumSearchStatus(report.id, "failed", storedMessage).catch(() => undefined);
+      captureNoStrongMatches({ ...report, premiumSearchStatus: "failed", premiumSearchError: storedMessage }, premiumInputs, fallbackSummary, retryRequested, selectedBroadeningStrategy);
+      return NextResponse.json({ status: "failed", outcome: "no_strong_matches", retryAvailable: !retryRequested && canRetryPremiumSearch({ ...report, premiumSearchError: storedMessage }), offerCount: 0 });
+    }
+
     const storedMessage = retryRequested ? `${retryUsedMarker} ${message}` : message;
     await updateReportPremiumSearchStatus(report.id, "failed", storedMessage).catch(() => undefined);
-    capturePremiumSearchMessage("Premium search failed", { ...report, premiumSearchStatus: "failed", premiumSearchError: storedMessage }, premiumInputs, "error", retryRequested);
-    capturePremiumSearchException(error, { ...report, premiumSearchError: storedMessage }, premiumInputs, retryRequested);
+    capturePremiumSearchMessage("Premium search failed", { ...report, premiumSearchStatus: "failed", premiumSearchError: storedMessage }, premiumInputs, "error", retryRequested, selectedBroadeningStrategy);
+    capturePremiumSearchException(error, { ...report, premiumSearchError: storedMessage }, premiumInputs, retryRequested, selectedBroadeningStrategy);
     return NextResponse.json(
       {
         error: retryRequested
-          ? "Premium search still could not find strong leads after retry. Please contact support with this report id."
-          : "Premium search could not find strong leads with these criteria. You can retry once with broader criteria at no extra cost.",
+          ? "Premium search still could not run cleanly after retry. Please contact support with this report id."
+          : "Premium search hit a technical issue. You can retry once if the issue looks recoverable.",
         retryAvailable: !retryRequested && canRetryPremiumSearch({ ...report, premiumSearchError: storedMessage })
       },
       { status: 500 }
