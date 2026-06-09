@@ -69,6 +69,7 @@ City and country inference:
 Hard filters:
 - incompatible language
 - expired deadline
+- application deadline is today
 - company already applied to by the candidate
 - roles clearly matching thingsToAvoid
 - LinkedIn URL
@@ -78,6 +79,13 @@ Hard filters:
 - clearly unpaid if the candidate wants to avoid unpaid work
 - not a real internship, placement, graduate internship, trainee or student role
 - senior roles and full-time permanent roles that are not internships
+
+Deadline quality:
+- Do not include roles whose application deadline is today or already expired.
+- Prefer opportunities with at least 48 hours before the application deadline.
+- If the deadline is tomorrow, include it only when it is an exceptional exact or close match, language-compatible, and has a direct employer or ATS application URL.
+- If the deadline is tomorrow and you include it, add a clear risk note that the deadline is very soon.
+- If the deadline is unknown or not listed, do not invent one. Use "Deadline not listed" and add a risk note if relevant.
 
 Premium source quality:
 - Premium results should not feel like generic job-board scraping.
