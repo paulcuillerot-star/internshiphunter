@@ -218,6 +218,37 @@ function capturePremiumCheckout(message: string, reportId: string | undefined, i
   });
 }
 
+function captureUnpaidReportWithExistingOffers({
+  reportId,
+  premiumSearchStatus,
+  offerCount,
+  hasPremiumInputs,
+  hasSubmittedInputs,
+  submittedInputsUsable
+}: {
+  reportId: string;
+  premiumSearchStatus?: string;
+  offerCount: number;
+  hasPremiumInputs: boolean;
+  hasSubmittedInputs: boolean;
+  submittedInputsUsable: boolean;
+}) {
+  Sentry.withScope((scope) => {
+    scope.setTag("feature", "premium-search");
+    scope.setTag("reportId", reportId);
+    scope.setContext("premium_checkout_existing_offers", {
+      reportId,
+      isPaid: false,
+      premiumSearchStatus: premiumSearchStatus ?? "not_started",
+      offerCount,
+      hasPremiumInputs,
+      hasSubmittedInputs,
+      submittedInputsUsable
+    });
+    Sentry.captureMessage("Unpaid report has premium offers; continuing checkout instead of redirecting", "warning");
+  });
+}
+
 export async function POST(request: Request) {
   const { reportId, token, premiumInputs: rawPremiumInputs } = (await request.json()) as { reportId?: string; token?: string; premiumInputs?: Partial<RawPremiumInputs> };
 
@@ -233,16 +264,24 @@ export async function POST(request: Request) {
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
   const tokenParam = report.accessToken ? `token=${encodeURIComponent(report.accessToken)}` : "";
 
-  if (report.premiumOffers.length > 0 || report.premiumSearchStatus === "running" || report.premiumSearchStatus === "completed") {
-    return NextResponse.json({ url: premiumUrl(siteUrl, reportId, report.accessToken) });
-  }
-
   if (report.isPaid) {
     return NextResponse.json({ url: premiumUrl(siteUrl, reportId, report.accessToken) });
   }
 
   const submittedInputs = hasSubmittedInputValues(rawPremiumInputs) ? normalizeInputs(rawPremiumInputs ?? {}) : undefined;
-  const premiumInputs = submittedInputs && hasUsableInputs(submittedInputs) ? submittedInputs : report.premiumInputs;
+  const submittedInputsUsable = Boolean(submittedInputs && hasUsableInputs(submittedInputs));
+  const premiumInputs = submittedInputsUsable ? submittedInputs : report.premiumInputs;
+
+  if (report.premiumOffers.length > 0) {
+    captureUnpaidReportWithExistingOffers({
+      reportId,
+      premiumSearchStatus: report.premiumSearchStatus,
+      offerCount: report.premiumOffers.length,
+      hasPremiumInputs: Boolean(report.premiumInputs),
+      hasSubmittedInputs: Boolean(submittedInputs),
+      submittedInputsUsable
+    });
+  }
 
   if (!premiumInputs || !hasUsableInputs(premiumInputs)) {
     capturePremiumCheckout("Premium inputs validation failed", reportId, submittedInputs, "warning");
@@ -250,7 +289,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    if (submittedInputs && premiumInputs === submittedInputs) {
+    if (submittedInputsUsable && premiumInputs === submittedInputs) {
       await updateReportPremiumInputs(reportId, premiumInputs);
       capturePremiumCheckout("Premium inputs saved", reportId, premiumInputs);
     } else {
