@@ -109,12 +109,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Payment confirmation is still pending.", status: "pending_payment", offerCount: report.premiumOffers.length }, { status: 409 });
   }
 
-  if (status === "completed" && report.premiumOffers.length > 0) {
-    return NextResponse.json({ status: "completed", offerCount: report.premiumOffers.length });
-  }
-
-  if (status !== "failed" && report.premiumOffers.length > 0) {
-    await updateReportPremiumOffers(report.id, report.premiumOffers);
+  if (status === "completed") {
     return NextResponse.json({ status: "completed", offerCount: report.premiumOffers.length });
   }
 
