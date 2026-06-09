@@ -31,7 +31,9 @@ const weakSourceHosts = [
   "talent.com",
   "jooble.org",
   "simplyhired.com",
-  "monster.com"
+  "monster.com",
+  "google.com",
+  "bing.com"
 ];
 
 function isAuthorized(password?: string) {
@@ -123,9 +125,19 @@ function dayDiffFromToday(date: Date) {
   return Math.round((target - today) / 86_400_000);
 }
 
+function offerDiagnosticText(offer: PremiumOffer) {
+  return [offer.url, offer.source, offer.deadline, offer.publishedDate, offer.rawSourceSnippet, offer.risks.join(" ")].join(" ").toLowerCase();
+}
+
+function hasSavedStalePostingSignal(offer: PremiumOffer) {
+  const text = offerDiagnosticText(offer);
+  return /\b(2019|2020|2021|2022|2023|2024)\b/.test(text);
+}
+
 function offerQualityFlags(offer: PremiumOffer) {
   const flags: Array<{ label: string; kind?: "danger" | "warning" | "neutral" }> = [];
   const parsedDeadline = parseDeadline(offer.deadline);
+  const diagnostics = offerDiagnosticText(offer);
 
   if (!offer.deadline || !parsedDeadline) {
     flags.push({ label: "missing deadline", kind: "neutral" });
@@ -138,6 +150,11 @@ function offerQualityFlags(offer: PremiumOffer) {
 
   if (isWeakSourceUrl(offer.url, offer.source)) flags.push({ label: "weak source", kind: "warning" });
   if (isLinkedInUrl(offer.url, offer.source)) flags.push({ label: "LinkedIn URL", kind: "danger" });
+  if (/unreachable_url|not reachable|404|410/.test(diagnostics)) flags.push({ label: "unreachable_url", kind: "danger" });
+  if (hasSavedStalePostingSignal(offer)) flags.push({ label: "stale_posting", kind: "danger" });
+  if (/generic_redirect|generic careers|generic career|redirected to generic/.test(diagnostics)) flags.push({ label: "generic_redirect", kind: "warning" });
+  if (/archived_or_closed|archived|position closed|job closed|no longer available|removed|posting has expired/.test(diagnostics)) flags.push({ label: "archived_or_closed", kind: "danger" });
+  if (/content_mismatch|content mismatch|specific offer not found|title not found|company not found/.test(diagnostics)) flags.push({ label: "content_mismatch", kind: "warning" });
 
   return flags;
 }
