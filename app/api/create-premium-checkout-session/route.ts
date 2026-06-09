@@ -2,12 +2,12 @@ import * as Sentry from "@sentry/nextjs";
 import { NextResponse } from "next/server";
 import { getReportIfAuthorized, updateReportPremiumInputs } from "@/lib/store";
 import { getStripeClient } from "@/lib/stripe";
-import type { PremiumSearchInputs } from "@/lib/types";
+import type { PremiumLanguage, PremiumSearchInputs } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-type RawPremiumInputs = Record<keyof PremiumSearchInputs, string>;
+type RawPremiumInputs = Partial<Record<keyof PremiumSearchInputs, unknown>>;
 
 const languageAliases: Record<string, string> = {
   french: "French",
@@ -86,6 +86,13 @@ const countryAliases: Record<string, string> = {
 };
 
 const countryAliasKeys = Object.keys(countryAliases).sort((a, b) => b.length - a.length);
+const languageLevels = ["native", "fluent", "professional", "working", "intermediate", "basic", "beginner"];
+
+function rawString(value: unknown) {
+  if (Array.isArray(value)) return value.join(", ");
+  if (typeof value === "boolean") return value ? "true" : "false";
+  return String(value ?? "");
+}
 
 function normalizeKey(value: string) {
   return value
@@ -109,18 +116,48 @@ function unique(items: string[]) {
   return Array.from(new Set(items.map((item) => item.trim()).filter(Boolean)));
 }
 
-function splitList(value: string) {
-  return unique(String(value ?? "").split(/[,;\/\n]+/).map((item) => item.trim()));
+function splitList(value: unknown) {
+  return unique(rawString(value).split(/[,;\/\n]+/).map((item) => item.trim()));
 }
 
-function splitLooseWords(value: string) {
-  return unique(String(value ?? "").replace(/[;\/\n]+/g, ",").split(/[ ,]+/).map((item) => item.trim()));
+function splitLooseWords(value: unknown) {
+  return unique(rawString(value).replace(/[;\/\n]+/g, ",").split(/[ ,]+/).map((item) => item.trim()));
 }
 
-function normalizeLanguages(value: string) {
+function normalizeLanguages(value: unknown) {
   const directParts = splitList(value);
   const parts = directParts.length === 1 && directParts[0]?.includes(" ") ? splitLooseWords(value) : directParts;
-  return unique(parts.map((part) => languageAliases[normalizeKey(part)] ?? titleCase(part)));
+  return unique(parts.map((part) => languageAliases[normalizeKey(part)] ?? titleCase(part)).filter((part) => !languageLevels.includes(normalizeKey(part))));
+}
+
+function inferLanguageLevel(part: string) {
+  const key = normalizeKey(part);
+  const level = languageLevels.find((candidate) => key.includes(candidate));
+  if (!level) return "Working proficiency";
+  if (level === "beginner") return "Basic";
+  return titleCase(level);
+}
+
+function normalizeLanguageDetails(value: unknown): PremiumLanguage[] {
+  const directParts = splitList(value);
+  const parts = directParts.length ? directParts : splitLooseWords(value);
+  const languages: PremiumLanguage[] = [];
+
+  for (const part of parts) {
+    const normalizedPart = normalizeKey(part);
+    const languageKey = Object.keys(languageAliases).find((alias) => normalizedPart.includes(alias));
+    const language = languageKey ? languageAliases[languageKey] : languageAliases[normalizedPart] ?? titleCase(part.replace(/\b(native|fluent|professional|working|intermediate|basic|beginner)\b/gi, ""));
+    if (!language || languageLevels.includes(normalizeKey(language))) continue;
+    languages.push({ language, level: inferLanguageLevel(part) });
+  }
+
+  const seen = new Set<string>();
+  return languages.filter((item) => {
+    const key = normalizeKey(item.language);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function splitTrailingCountry(value: string) {
@@ -143,8 +180,8 @@ function splitTrailingCountry(value: string) {
   return null;
 }
 
-function normalizeLocationParts(...values: string[]) {
-  const combined = values.filter(Boolean).join(",");
+function normalizeLocationParts(...values: unknown[]) {
+  const combined = values.map(rawString).filter(Boolean).join(",");
   const parts = splitList(combined).flatMap((part) => {
     const split = splitTrailingCountry(part);
     if (split?.city && split.country) return [split.city, split.country];
@@ -155,7 +192,7 @@ function normalizeLocationParts(...values: string[]) {
   return unique(parts);
 }
 
-function classifyLocations(rawCountries: string, rawCities: string) {
+function classifyLocations(rawCountries: unknown, rawCities: unknown) {
   const parts = normalizeLocationParts(rawCountries, rawCities);
   const targetCountries: string[] = [];
   const targetCities: string[] = [];
@@ -172,27 +209,55 @@ function classifyLocations(rawCountries: string, rawCities: string) {
   return { targetCountries: unique(targetCountries), targetCities: unique(targetCities) };
 }
 
-function normalizeInputs(raw: Partial<RawPremiumInputs>): PremiumSearchInputs {
-  const locations = classifyLocations(raw.targetCountries ?? "", raw.targetCities ?? "");
+function parseBoolean(value: unknown) {
+  return ["true", "1", "yes", "on"].includes(normalizeKey(rawString(value)));
+}
+
+function normalizeInputs(raw: RawPremiumInputs): PremiumSearchInputs {
+  const targetRoles = splitList(raw.targetRoles);
+  const rolePriority = splitList(raw.rolePriority);
+  const targetIndustries = splitList(raw.targetIndustries);
+  const hardFilters = splitList(raw.hardFilters ?? raw.thingsToAvoid);
+  const softPreferences = splitList(raw.softPreferences);
+  const broadeningOrder = splitList(raw.broadeningOrder);
+  const acceptableCountries = splitList(raw.acceptableCountries ?? raw.targetCountries);
+  const strictCities = splitList(raw.strictCities ?? raw.targetCities);
+  const locations = classifyLocations(acceptableCountries.join(", ") || raw.targetCountries, strictCities.join(", ") || raw.targetCities);
+  const languagesSpoken = normalizeLanguages(raw.languagesSpoken ?? raw.languages);
+  const languages = normalizeLanguageDetails(raw.languages ?? raw.languagesSpoken);
+
   return {
-    targetCountries: locations.targetCountries,
-    targetCities: locations.targetCities,
-    languagesSpoken: normalizeLanguages(raw.languagesSpoken ?? ""),
-    internshipStartDate: String(raw.internshipStartDate ?? "").trim(),
-    internshipDuration: String(raw.internshipDuration ?? "").trim(),
-    companiesAlreadyAppliedTo: splitList(raw.companiesAlreadyAppliedTo ?? ""),
-    thingsToAvoid: String(raw.thingsToAvoid ?? "").trim(),
-    profileSummary: String(raw.profileSummary ?? "").trim(),
-    idealInternshipDescription: String(raw.idealInternshipDescription ?? "").trim()
+    targetCountries: locations.targetCountries.length ? locations.targetCountries : acceptableCountries,
+    targetCities: locations.targetCities.length ? locations.targetCities : strictCities,
+    languagesSpoken,
+    internshipStartDate: rawString(raw.internshipStartDate).trim(),
+    internshipDuration: rawString(raw.internshipDuration).trim(),
+    companiesAlreadyAppliedTo: splitList(raw.companiesAlreadyAppliedTo),
+    thingsToAvoid: rawString(raw.thingsToAvoid ?? raw.hardFilters).trim(),
+    profileSummary: rawString(raw.profileSummary).trim(),
+    idealInternshipDescription: rawString(raw.idealInternshipDescription).trim(),
+    targetRoles,
+    rolePriority,
+    targetIndustries,
+    strictCities: locations.targetCities.length ? locations.targetCities : strictCities,
+    acceptableCountries: locations.targetCountries.length ? locations.targetCountries : acceptableCountries,
+    remoteAccepted: parseBoolean(raw.remoteAccepted),
+    languages,
+    durationStrictness: rawString(raw.durationStrictness) === "strict" ? "strict" : "flexible",
+    hardFilters,
+    softPreferences,
+    broadeningOrder
   };
 }
 
 function hasUsableInputs(inputs: PremiumSearchInputs) {
-  return (inputs.targetCountries.length > 0 || inputs.targetCities.length > 0) && inputs.languagesSpoken.length > 0;
+  const locationCount = inputs.targetCountries.length + inputs.targetCities.length + (inputs.acceptableCountries?.length ?? 0) + (inputs.strictCities?.length ?? 0);
+  const languageCount = inputs.languagesSpoken.length + (inputs.languages?.length ?? 0);
+  return locationCount > 0 && languageCount > 0;
 }
 
-function hasSubmittedInputValues(raw?: Partial<RawPremiumInputs>) {
-  return Boolean(raw && Object.values(raw).some((value) => String(value ?? "").trim().length > 0));
+function hasSubmittedInputValues(raw?: RawPremiumInputs) {
+  return Boolean(raw && Object.values(raw).some((value) => rawString(value).trim().length > 0));
 }
 
 function premiumUrl(siteUrl: string, reportId: string, token?: string) {
@@ -225,6 +290,8 @@ function capturePremiumCheckout(message: string, reportId: string | undefined, i
       targetCountriesCount: inputs?.targetCountries.length ?? 0,
       targetCitiesCount: inputs?.targetCities.length ?? 0,
       languagesCount: inputs?.languagesSpoken.length ?? 0,
+      targetRolesCount: inputs?.targetRoles?.length ?? 0,
+      hardFiltersCount: inputs?.hardFilters?.length ?? 0,
       premiumSearchStatus: "pending_payment"
     });
     Sentry.captureMessage(message, level);
@@ -232,7 +299,7 @@ function capturePremiumCheckout(message: string, reportId: string | undefined, i
 }
 
 export async function POST(request: Request) {
-  const { reportId, token, premiumInputs: rawPremiumInputs } = (await request.json()) as { reportId?: string; token?: string; premiumInputs?: Partial<RawPremiumInputs> };
+  const { reportId, token, premiumInputs: rawPremiumInputs } = (await request.json()) as { reportId?: string; token?: string; premiumInputs?: RawPremiumInputs };
 
   if (!reportId) {
     return NextResponse.json({ error: "Missing reportId." }, { status: 400 });
@@ -314,6 +381,8 @@ export async function POST(request: Request) {
         targetCountriesCount: premiumInputs.targetCountries.length,
         targetCitiesCount: premiumInputs.targetCities.length,
         languagesCount: premiumInputs.languagesSpoken.length,
+        targetRolesCount: premiumInputs.targetRoles?.length ?? 0,
+        hardFiltersCount: premiumInputs.hardFilters?.length ?? 0,
         premiumSearchStatus: "pending_payment"
       });
       Sentry.captureException(error);
