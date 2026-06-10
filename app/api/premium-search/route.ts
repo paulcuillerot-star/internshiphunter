@@ -9,11 +9,25 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 type BroadeningStrategy = "broaden_locations" | "broaden_roles" | "relax_one_hard_filter" | "include_nearby_industries" | "broader_company_sources";
+type SearchPassKind = "direct_ats" | "exact_location" | "role_synonyms" | "industry_company" | "source_discovery";
 
 type RejectionSummary = {
   offersDetected: number;
   offersRejected: number;
   reasons: string[];
+  passesAttempted: number;
+  candidatesDetectedPerPass: number[];
+  candidatesRejectedPerPass: number[];
+  finalValidOffers: number;
+};
+
+type PassResult = {
+  passKind: SearchPassKind;
+  detected: number;
+  rejected: number;
+  kept: ScoredInternshipOffer[];
+  reasons: string[];
+  querySummary?: string;
 };
 
 const retryUsedMarker = "[retry-used]";
@@ -23,9 +37,13 @@ const verySoonDeadlineRisk = "Deadline is very soon; apply immediately.";
 const missingDeadlineRisk = "Deadline not listed; verify before applying.";
 const contentUnverifiedRisk = "Could not fully verify page content; verify before applying.";
 const linkValidationTimeoutMs = 8_000;
+const minimumSearchPasses = 4;
+const targetCandidateThreshold = 8;
+const maxSearchPasses = 5;
 const stalePostingYears = ["2019", "2020", "2021", "2022", "2023", "2024"];
 
 const broadeningStrategies: BroadeningStrategy[] = ["broaden_locations", "broaden_roles", "relax_one_hard_filter", "include_nearby_industries", "broader_company_sources"];
+const searchPasses: SearchPassKind[] = ["direct_ats", "exact_location", "role_synonyms", "industry_company", "source_discovery"];
 
 const directApplicationHosts = [
   "greenhouse.io",
@@ -59,7 +77,7 @@ function premiumErrorType(errorMessage?: string) {
   if (!errorMessage) return "none";
   if (isNoStrongMatchesOutcome(errorMessage)) return "no_strong_matches";
   if (/payment required|unauthorized|forbidden|missing report|missing premium criteria|premium criteria are required|token|report access/i.test(errorMessage)) return "unrecoverable";
-  if (/zero valid|No language-compatible|no strong leads|weak aggregator|after link and deadline filtering/i.test(errorMessage)) return "zero_results";
+  if (/zero valid|No language-compatible|no strong leads|weak aggregator|after link and deadline filtering|No strong matches found/i.test(errorMessage)) return "zero_results";
   if (/OpenAI|web_search|JSON|parse|timeout|network|rate/i.test(errorMessage)) return "recoverable_search_error";
   return "technical_error";
 }
@@ -129,13 +147,7 @@ function captureDeadlineRejection(reportId: string, offer: ScoredInternshipOffer
     scope.setTag("feature", "premium-search");
     scope.setTag("reportId", reportId);
     scope.setTag("reason", reason);
-    scope.setContext("premium_deadline_rejection", {
-      reportId,
-      company: offer.company,
-      title: offer.title,
-      deadline: offer.deadline,
-      reason
-    });
+    scope.setContext("premium_deadline_rejection", { reportId, company: offer.company, title: offer.title, deadline: offer.deadline, reason });
     Sentry.captureMessage("Premium offer rejected for deadline quality", "warning");
   });
 }
@@ -145,14 +157,7 @@ function captureLinkRejection(reportId: string, offer: ScoredInternshipOffer, re
     scope.setTag("feature", "premium-search");
     scope.setTag("reportId", reportId);
     scope.setTag("reason", reason);
-    scope.setContext("premium_link_rejection", {
-      reportId,
-      company: offer.company,
-      title: offer.title,
-      urlHost: urlHost(offer.url),
-      httpStatus,
-      reason
-    });
+    scope.setContext("premium_link_rejection", { reportId, company: offer.company, title: offer.title, urlHost: urlHost(offer.url), httpStatus, reason });
     Sentry.captureMessage("Premium offer rejected for link quality", "warning");
   });
 }
@@ -162,14 +167,7 @@ function captureLinkWarning(reportId: string, offer: ScoredInternshipOffer, reas
     scope.setTag("feature", "premium-search");
     scope.setTag("reportId", reportId);
     scope.setTag("reason", reason);
-    scope.setContext("premium_link_warning", {
-      reportId,
-      company: offer.company,
-      title: offer.title,
-      urlHost: urlHost(offer.url),
-      httpStatus,
-      reason
-    });
+    scope.setContext("premium_link_warning", { reportId, company: offer.company, title: offer.title, urlHost: urlHost(offer.url), httpStatus, reason });
     Sentry.captureMessage("Premium offer link content could not be fully verified", "warning");
   });
 }
@@ -234,6 +232,60 @@ function mergePremiumProfile(profile: CandidateProfile, premiumInputs: PremiumSe
   };
 }
 
+function roleSynonyms(roles: string[]) {
+  const text = roles.join(" ").toLowerCase();
+  const synonyms: string[] = [];
+  if (/business development|bd|sales|commercial/.test(text)) synonyms.push("sales intern", "commercial intern", "partnerships intern");
+  if (/marketing|brand|growth/.test(text)) synonyms.push("brand marketing intern", "growth marketing intern", "campaign intern");
+  if (/partnership|sponsorship/.test(text)) synonyms.push("partnerships intern", "sponsorship intern", "business development intern");
+  if (/event/.test(text)) synonyms.push("event management intern", "event operations intern");
+  if (/strategy|consulting|project/.test(text)) synonyms.push("strategy intern", "project management intern", "business analyst intern");
+  return unique(synonyms).slice(0, 5);
+}
+
+function industrySynonyms(industries: string[]) {
+  const text = industries.join(" ").toLowerCase();
+  const synonyms: string[] = [];
+  if (/automotive|car/.test(text)) synonyms.push("mobility", "auto manufacturer", "car industry", "dealership group");
+  if (/sport/.test(text)) synonyms.push("sports agency", "club", "federation", "tournament");
+  if (/fashion|luxury/.test(text)) synonyms.push("luxury group", "fashion", "retail");
+  if (/tech|saas|startup/.test(text)) synonyms.push("startup", "scaleup", "SaaS", "technology company");
+  return unique(synonyms).slice(0, 5);
+}
+
+function profileForPass(profile: CandidateProfile, passKind: SearchPassKind): CandidateProfile {
+  const brief = profile.premiumSearchBrief;
+  if (!brief) return profile;
+
+  if (passKind === "direct_ats") {
+    return { ...profile, premiumSearchBrief: { ...brief, broadeningOrder: ["Direct employer and ATS pages only", "Greenhouse Lever Workday Teamtailor SmartRecruiters Ashby"] } };
+  }
+
+  if (passKind === "exact_location") {
+    return { ...profile, premiumSearchBrief: { ...brief, broadeningOrder: ["Exact role and exact target city or country only", "Do not relax hard filters"] } };
+  }
+
+  if (passKind === "role_synonyms") {
+    const synonyms = roleSynonyms([...brief.rolePriority, ...brief.targetRoles, ...profile.desiredRoles]);
+    return {
+      ...profile,
+      desiredRoles: unique([...profile.desiredRoles, ...synonyms]),
+      premiumSearchBrief: { ...brief, targetRoles: unique([...brief.targetRoles, ...synonyms]), rolePriority: unique([...brief.rolePriority, ...synonyms]), broadeningOrder: ["Use same career-family role synonyms only", "Keep exact locations and hard filters"] }
+    };
+  }
+
+  if (passKind === "industry_company") {
+    const synonyms = industrySynonyms([...brief.targetIndustries, ...profile.targetIndustries]);
+    return {
+      ...profile,
+      targetIndustries: unique([...profile.targetIndustries, ...synonyms]),
+      premiumSearchBrief: { ...brief, targetIndustries: unique([...brief.targetIndustries, ...synonyms]), broadeningOrder: ["Industry and company-specific search", "Recognized companies only", "Keep language and hard filters strict"] }
+    };
+  }
+
+  return { ...profile, premiumSearchBrief: { ...brief, broadeningOrder: ["Broader source discovery using direct employer and ATS pages", "Keep criteria and hard filters strict", "Do not broaden language compatibility"] } };
+}
+
 function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
@@ -270,8 +322,7 @@ function hostMatches(host: string, domains: string[]) {
 }
 
 function isTrustedDirectApplicationHost(url: string) {
-  const host = urlHost(url);
-  return hostMatches(host, directApplicationHosts);
+  return hostMatches(urlHost(url), directApplicationHosts);
 }
 
 function hasDirectApplicationUrl(url: string) {
@@ -289,13 +340,7 @@ function isLanguageCompatibleEnough(offer: ScoredInternshipOffer) {
 }
 
 function isExceptionalTomorrowOffer(offer: ScoredInternshipOffer) {
-  return (
-    (offer.matchType === "exact" || offer.matchType === "close") &&
-    offer.matchScore >= 85 &&
-    offer.qualityScore >= 80 &&
-    hasDirectApplicationUrl(offer.url) &&
-    isLanguageCompatibleEnough(offer)
-  );
+  return (offer.matchType === "exact" || offer.matchType === "close") && offer.matchScore >= 85 && offer.qualityScore >= 80 && hasDirectApplicationUrl(offer.url) && isLanguageCompatibleEnough(offer);
 }
 
 function withRisk(offer: ScoredInternshipOffer, risk: string): ScoredInternshipOffer {
@@ -350,9 +395,7 @@ function normalizePageText(value: string) {
 }
 
 function meaningfulTokens(value: string) {
-  return normalizePageText(value)
-    .split(" ")
-    .filter((token) => token.length >= 4 && !["intern", "internship", "stage", "trainee", "assistant", "the", "and", "with"].includes(token));
+  return normalizePageText(value).split(" ").filter((token) => token.length >= 4 && !["intern", "internship", "stage", "trainee", "assistant", "the", "and", "with"].includes(token));
 }
 
 function pageHasOfferEvidence(text: string, offer: ScoredInternshipOffer) {
@@ -404,9 +447,7 @@ async function fetchOfferPage(url: string) {
   try {
     const head = await fetchWithTimeout(url, { method: "HEAD", headers: { "User-Agent": "InternshipHunter/1.0" } });
     headStatus = head.status;
-    if (head.status === 404 || head.status === 410) {
-      return { status: head.status, finalUrl: head.url, text: "" };
-    }
+    if (head.status === 404 || head.status === 410) return { status: head.status, finalUrl: head.url, text: "" };
   } catch {
     // Many ATS pages block HEAD. GET below is the source of truth.
   }
@@ -459,12 +500,7 @@ async function validateOfferLink(offer: ScoredInternshipOffer, reportId: string)
     return { offer: finalUrl === offer.url ? offer : { ...offer, url: finalUrl } };
   } catch (error) {
     captureLinkRejection(reportId, offer, "unreachable_url");
-    Sentry.addBreadcrumb({
-      category: "premium-link-validation",
-      level: "warning",
-      message: "Premium offer link validation failed",
-      data: { reportId, company: offer.company, title: offer.title, urlHost: urlHost(offer.url), error: error instanceof Error ? error.message : "unknown" }
-    });
+    Sentry.addBreadcrumb({ category: "premium-link-validation", level: "warning", message: "Premium offer link validation failed", data: { reportId, company: offer.company, title: offer.title, urlHost: urlHost(offer.url), error: error instanceof Error ? error.message : "unknown" } });
     return { offer: undefined, reason: "unreachable_url" };
   }
 }
@@ -486,10 +522,66 @@ function mainReasons(reasons: string[]) {
   return Array.from(new Set(reasons)).slice(0, 5);
 }
 
+function offerKey(offer: ScoredInternshipOffer) {
+  const url = offer.url.trim().toLowerCase().replace(/\/$/, "");
+  const companyTitle = `${offer.company} ${offer.title}`.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return url || companyTitle;
+}
+
+function dedupeOffers(offers: ScoredInternshipOffer[]) {
+  const seen = new Set<string>();
+  const uniqueOffers: ScoredInternshipOffer[] = [];
+  for (const offer of offers) {
+    const key = offerKey(offer);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uniqueOffers.push(offer);
+  }
+  return uniqueOffers;
+}
+
+function shouldContinueMinimumEffort(passCount: number, detectedCount: number, validCount: number) {
+  if (validCount > 0) return false;
+  if (passCount < minimumSearchPasses) return true;
+  if (detectedCount < 3 && passCount < maxSearchPasses) return true;
+  if (detectedCount < targetCandidateThreshold && passCount < maxSearchPasses) return true;
+  return false;
+}
+
+async function runValidatedPass(profile: CandidateProfile, reportId: string, retryRequested: boolean, broadeningStrategy: BroadeningStrategy | undefined, passKind: SearchPassKind): Promise<PassResult> {
+  const passProfile = profileForPass(profile, passKind);
+  const result = await webInternshipSearch(passProfile, passProfile.cvText, { retryMode: retryRequested, broadeningStrategy });
+  const linkChecked = await filterPremiumLinkQuality(result.offers, reportId);
+  const deadlineChecked = filterPremiumDeadlineQuality(linkChecked.offers, reportId);
+  const kept = deadlineChecked.offers.map((offer) => ({ ...offer, isPremium: true }));
+  return {
+    passKind,
+    detected: result.offers.length,
+    rejected: Math.max(0, result.offers.length - kept.length),
+    kept,
+    reasons: [...linkChecked.reasons, ...deadlineChecked.reasons],
+    querySummary: result.querySummary
+  };
+}
+
+function effortSummary(passResults: PassResult[], finalOffers: ScoredInternshipOffer[]): RejectionSummary {
+  const offersDetected = passResults.reduce((sum, pass) => sum + pass.detected, 0);
+  const offersRejected = passResults.reduce((sum, pass) => sum + pass.rejected, 0);
+  return {
+    offersDetected,
+    offersRejected,
+    reasons: mainReasons(passResults.flatMap((pass) => pass.reasons.length ? pass.reasons : pass.detected === 0 ? [`${pass.passKind}_zero_detected`] : [])),
+    passesAttempted: passResults.length,
+    candidatesDetectedPerPass: passResults.map((pass) => pass.detected),
+    candidatesRejectedPerPass: passResults.map((pass) => pass.rejected),
+    finalValidOffers: finalOffers.length
+  };
+}
+
 function noStrongMatchesMessage(summary: RejectionSummary, retryRequested: boolean, broadeningStrategy?: BroadeningStrategy) {
   const markers = [noStrongMatchesMarker, retryRequested ? secondSearchUsedMarker : "", broadeningStrategy ? `[strategy:${broadeningStrategy}]` : ""].filter(Boolean).join(" ");
   const reasons = summary.reasons.length ? summary.reasons.join(", ") : "quality_filters";
-  return `${markers} No strong matches found. offers_detected=${summary.offersDetected}; offers_rejected=${summary.offersRejected}; main_rejection_reasons=${reasons}; final_strong_matches=0.`;
+  return `${markers} No strong matches found. search_passes_attempted=${summary.passesAttempted}; candidates_detected_per_pass=${summary.candidatesDetectedPerPass.join("|")}; candidates_rejected_per_pass=${summary.candidatesRejectedPerPass.join("|")}; offers_detected=${summary.offersDetected}; offers_rejected=${summary.offersRejected}; main_rejection_reasons=${reasons}; final_strong_matches=${summary.finalValidOffers}.`;
 }
 
 function isNoStrongMatchesError(message: string) {
@@ -504,13 +596,38 @@ function captureNoStrongMatches(report: InternshipSearchReport, premiumInputs: P
     if (broadeningStrategy) scope.setTag("broadeningStrategy", broadeningStrategy);
     scope.setContext("premium_no_strong_matches", {
       ...sentryContext(report, premiumInputs, retryRequested, broadeningStrategy),
+      searchPassesAttempted: summary.passesAttempted,
+      candidatesDetectedPerPass: summary.candidatesDetectedPerPass,
+      candidatesRejectedPerPass: summary.candidatesRejectedPerPass,
       offersDetected: summary.offersDetected,
       offersRejected: summary.offersRejected,
       mainRejectionReasons: summary.reasons,
-      finalStrongMatches: 0
+      finalStrongMatches: summary.finalValidOffers
     });
-    Sentry.captureMessage("Premium search found no strong matches", "info");
+    Sentry.captureMessage("Premium search found no strong matches after minimum effort", "info");
   });
+}
+
+async function collectPremiumOffersWithMinimumEffort(profile: CandidateProfile, report: InternshipSearchReport, retryRequested: boolean, broadeningStrategy?: BroadeningStrategy) {
+  const passResults: PassResult[] = [];
+  let collected: ScoredInternshipOffer[] = [];
+
+  for (const passKind of searchPasses) {
+    try {
+      const pass = await runValidatedPass(profile, report.id, retryRequested, broadeningStrategy, passKind);
+      passResults.push(pass);
+      collected = dedupeOffers([...collected, ...pass.kept]).slice(0, 3);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown premium search error";
+      if (!isNoStrongMatchesError(message)) throw error;
+      passResults.push({ passKind, detected: 0, rejected: 0, kept: [], reasons: [message.includes("weak aggregator") ? "weak_aggregator_or_job_board" : `${passKind}_zero_detected`] });
+    }
+
+    const detectedCount = passResults.reduce((sum, pass) => sum + pass.detected, 0);
+    if (!shouldContinueMinimumEffort(passResults.length, detectedCount, collected.length)) break;
+  }
+
+  return { offers: collected.slice(0, 3), summary: effortSummary(passResults, collected), querySummary: passResults.map((pass) => `${pass.passKind}: ${pass.querySummary ?? "no query summary"}`).join("\n") };
 }
 
 export async function POST(request: Request) {
@@ -581,7 +698,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Premium search is not ready to run.", status, offerCount: report.premiumOffers.length }, { status: 409 });
   }
 
-  let rejectionSummary: RejectionSummary = { offersDetected: 0, offersRejected: 0, reasons: [] };
+  let rejectionSummary: RejectionSummary = { offersDetected: 0, offersRejected: 0, reasons: [], passesAttempted: 0, candidatesDetectedPerPass: [], candidatesRejectedPerPass: [], finalValidOffers: 0 };
 
   try {
     await updateReportPremiumSearchStatus(report.id, "running");
@@ -589,18 +706,29 @@ export async function POST(request: Request) {
 
     const profile = await getProfile(report.profileId);
     const premiumProfile = mergePremiumProfile(profile, premiumInputs, selectedBroadeningStrategy);
-    const result = await webInternshipSearch(premiumProfile, premiumProfile.cvText, { retryMode: retryRequested, broadeningStrategy: selectedBroadeningStrategy });
-    const linkChecked = await filterPremiumLinkQuality(result.offers, report.id);
-    const deadlineChecked = filterPremiumDeadlineQuality(linkChecked.offers, report.id);
-    const offers = deadlineChecked.offers.slice(0, 3).map((offer) => ({ ...offer, isPremium: true }));
-    rejectionSummary = {
-      offersDetected: result.offers.length,
-      offersRejected: result.offers.length - offers.length,
-      reasons: mainReasons([...linkChecked.reasons, ...deadlineChecked.reasons])
-    };
+    const result = await collectPremiumOffersWithMinimumEffort(premiumProfile, report, retryRequested, selectedBroadeningStrategy);
+    const offers = result.offers;
+    rejectionSummary = result.summary;
+
+    Sentry.withScope((scope) => {
+      scope.setTag("feature", "premium-search");
+      scope.setTag("reportId", report.id);
+      scope.setTag("retry", String(retryRequested));
+      if (selectedBroadeningStrategy) scope.setTag("broadeningStrategy", selectedBroadeningStrategy);
+      scope.setContext("premium_search_effort", {
+        searchPassesAttempted: rejectionSummary.passesAttempted,
+        candidatesDetectedPerPass: rejectionSummary.candidatesDetectedPerPass,
+        candidatesRejectedPerPass: rejectionSummary.candidatesRejectedPerPass,
+        offersDetected: rejectionSummary.offersDetected,
+        offersRejected: rejectionSummary.offersRejected,
+        finalValidOffers: rejectionSummary.finalValidOffers,
+        topRejectionReasons: rejectionSummary.reasons
+      });
+      Sentry.captureMessage("Premium search minimum effort completed", "info");
+    });
 
     if (!offers.length) {
-      throw new Error("No strong matches found after link and deadline filtering.");
+      throw new Error("No strong matches found after minimum search effort.");
     }
 
     await updateReportPremiumOffers(report.id, offers);
@@ -611,9 +739,9 @@ export async function POST(request: Request) {
     const noStrongMatches = isNoStrongMatchesError(message);
 
     if (noStrongMatches) {
-      const fallbackSummary = rejectionSummary.offersDetected || rejectionSummary.reasons.length
+      const fallbackSummary = rejectionSummary.passesAttempted
         ? rejectionSummary
-        : { offersDetected: 0, offersRejected: 0, reasons: ["search_quality_filters"] };
+        : { offersDetected: 0, offersRejected: 0, reasons: ["search_quality_filters"], passesAttempted: 0, candidatesDetectedPerPass: [], candidatesRejectedPerPass: [], finalValidOffers: 0 };
       const storedMessage = noStrongMatchesMessage(fallbackSummary, retryRequested, selectedBroadeningStrategy);
       await updateReportPremiumSearchStatus(report.id, "failed", storedMessage).catch(() => undefined);
       captureNoStrongMatches({ ...report, premiumSearchStatus: "failed", premiumSearchError: storedMessage }, premiumInputs, fallbackSummary, retryRequested, selectedBroadeningStrategy);
