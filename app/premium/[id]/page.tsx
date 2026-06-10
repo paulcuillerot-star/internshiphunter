@@ -253,25 +253,34 @@ function NoStrongMatchesOutcome({ reportId, token, errorMessage, retryAvailable 
     <section className="section">
       <div className="max-w-3xl rounded-lg border border-emerald-100 bg-white p-8 shadow-soft">
         <p className="text-sm font-semibold uppercase text-signal">Premium search outcome</p>
-        <h1 className="mt-3 text-4xl font-bold text-ink">{finalOutcome ? "No regrets. We checked the market." : "No strong matches found"}</h1>
-        <p className="mt-4 text-ink/70">
-          {finalOutcome
-            ? "Nothing strong fits your criteria right now. We searched and filtered out weak, expired, unreachable, language-incompatible or irrelevant offers."
-            : "We checked the market and filtered out weak, expired, unreachable, language-incompatible or irrelevant offers. This is a search outcome, not a technical failure."}
+        <h1 className="mt-3 text-4xl font-bold text-ink">Good news: you can stop scrolling.</h1>
+        {finalOutcome ? (
+          <div className="mt-4 space-y-3 text-lg leading-8 text-ink/75">
+            <p>We checked your exact search and the closest alternatives.</p>
+            <p>Nothing worth applying to is live right now.</p>
+          </div>
+        ) : (
+          <div className="mt-4 space-y-3 text-lg leading-8 text-ink/75">
+            <p>Your perfect internship does not seem to be posted today.</p>
+            <p>Better news: we found a few strong alternatives.</p>
+          </div>
+        )}
+        <p className="mt-5 text-sm leading-6 text-ink/60">
+          We filtered out weak, expired, unreachable, language-incompatible or irrelevant offers so you do not have to keep scrolling.
         </p>
         <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-md bg-mist p-4"><p className="text-xs font-bold uppercase text-ink/45">Offers detected</p><p className="mt-2 text-2xl font-black text-ink">{summary.offersDetected}</p></div>
-          <div className="rounded-md bg-mist p-4"><p className="text-xs font-bold uppercase text-ink/45">Offers rejected</p><p className="mt-2 text-2xl font-black text-ink">{summary.offersRejected}</p></div>
-          <div className="rounded-md bg-mist p-4"><p className="text-xs font-bold uppercase text-ink/45">Strong matches</p><p className="mt-2 text-2xl font-black text-ink">{summary.finalStrongMatches}</p></div>
-          <div className="rounded-md bg-mist p-4"><p className="text-xs font-bold uppercase text-ink/45">Attempt</p><p className="mt-2 text-lg font-black text-ink">{finalOutcome ? "Final" : "1 of 2"}</p></div>
+          <div className="rounded-md bg-mist p-4"><p className="text-xs font-bold uppercase text-ink/45">Offers filtered out</p><p className="mt-2 text-2xl font-black text-ink">{summary.offersRejected}</p></div>
+          <div className="rounded-md bg-mist p-4"><p className="text-xs font-bold uppercase text-ink/45">Exact matches</p><p className="mt-2 text-2xl font-black text-ink">{summary.finalStrongMatches}</p></div>
+          <div className="rounded-md bg-mist p-4"><p className="text-xs font-bold uppercase text-ink/45">Search stage</p><p className="mt-2 text-lg font-black text-ink">{finalOutcome ? "Final" : "Alternatives"}</p></div>
         </div>
-        <p className="mt-4 rounded-md bg-emerald-50 p-3 text-sm leading-6 text-emerald-900">Main rejection reasons: {summary.reasons}</p>
-        {summary.strategy ? <p className="mt-3 rounded-md bg-ink/5 p-3 text-sm text-ink/70">Second search strategy used: {summary.strategy}</p> : null}
+        <p className="mt-4 rounded-md bg-emerald-50 p-3 text-sm leading-6 text-emerald-900">Filtered out because: {summary.reasons}</p>
+        {summary.strategy ? <p className="mt-3 rounded-md bg-ink/5 p-3 text-sm text-ink/70">Compromise used in the second search: {summary.strategy}</p> : null}
         {retryAvailable ? (
           <PremiumSecondSearchOptions reportId={reportId} accessToken={token} />
         ) : (
           <p className="mt-6 rounded-md bg-mist p-4 text-sm leading-6 text-ink/70">
-            Your exact internship does not seem to be out there today. Go touch grass, then come back when you want to try a broader search.
+            No regrets — the market has been checked. Come back when you want to try a broader search.
           </p>
         )}
         <p className="mt-4 text-xs font-semibold text-ink/45">Report id: {reportId}</p>
