@@ -5,11 +5,13 @@ import { ScoreBadge } from "./ScoreBadge";
 const matchLabels: Record<PremiumMatchType, string> = {
   exact: "Exact match",
   close: "Close match",
-  broadened: "Broadened match"
+  broadened: "Broadened match",
+  alternative: "Alternative"
 };
 
 export function OfferCard({ offer, reportId, premium = false }: { offer: ScoredInternshipOffer; reportId: string; premium?: boolean }) {
   const matchType = offer.matchType ?? "close";
+  const isAlternative = premium && matchType === "alternative";
 
   return (
     <article className="overflow-hidden rounded-xl border border-emerald-100 bg-white shadow-soft ring-1 ring-emerald-50">
@@ -30,10 +32,17 @@ export function OfferCard({ offer, reportId, premium = false }: { offer: ScoredI
           ) : null}
         </div>
 
+        {isAlternative ? (
+          <div className="mt-5 rounded-lg border border-amber-100 bg-amber-50/80 p-4 text-sm leading-6 text-amber-950">
+            <p><span className="font-bold text-amber-700">Compromise:</span> {offer.compromiseLabel || offer.broadenedReason || "This is a close alternative, not an exact match."}</p>
+            {offer.whyItFits ? <p className="mt-2"><span className="font-bold text-amber-700">Why it still fits:</span> {offer.whyItFits}</p> : null}
+          </div>
+        ) : null}
+
         {premium && (offer.languageFit || offer.broadenedReason) ? (
           <div className="mt-5 grid gap-3 rounded-lg border border-emerald-100 bg-emerald-50/60 p-4 text-sm text-emerald-950 md:grid-cols-2">
             {offer.languageFit ? <p><span className="font-bold text-signal">Language fit:</span> {offer.languageFit}</p> : null}
-            {offer.broadenedReason ? <p><span className="font-bold text-signal">Broadening:</span> {offer.broadenedReason}</p> : null}
+            {offer.broadenedReason ? <p><span className="font-bold text-signal">{isAlternative ? "Alternative note" : "Broadening"}:</span> {offer.broadenedReason}</p> : null}
           </div>
         ) : null}
 
