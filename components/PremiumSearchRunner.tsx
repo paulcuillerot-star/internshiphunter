@@ -3,8 +3,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { PremiumSearchStatus } from "@/lib/types";
+import { WaitingRedFlagGame } from "./WaitingRedFlagGame";
 
 type StatusResponse = { status?: PremiumSearchStatus; offerCount?: number; error?: string };
+
+const searchSteps = [
+  "Reading your criteria",
+  "Searching exact matches",
+  "Checking public job board results",
+  "Looking at company career pages",
+  "Verifying candidate links",
+  "Filtering expired or closed offers",
+  "Checking closest alternatives",
+  "Preparing your search report"
+];
 
 function LoadingBar() {
   return (
@@ -32,11 +44,12 @@ export function PremiumSearchRunner({
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const terminalNavigation = useRef(false);
   const [message, setMessage] = useState(
-    pollOnly ? "Searching live internship sources. This can take up to a minute." : retry ? "Ready to retry with broader criteria." : "Starting your live search..."
+    pollOnly ? "We are checking the market." : retry ? "Ready to retry with broader criteria." : "Starting your live search..."
   );
   const [error, setError] = useState("");
   const [isRunning, setIsRunning] = useState(false);
   const [isPolling, setIsPolling] = useState(pollOnly);
+  const [stepIndex, setStepIndex] = useState(0);
 
   const cleanPremiumUrl = useCallback(() => {
     const params = new URLSearchParams();
@@ -101,7 +114,7 @@ export function PremiumSearchRunner({
     }
 
     if (result?.status === "running") {
-      setMessage("Searching live internship sources. This can take up to a minute.");
+      setMessage("We are checking the market.");
       return;
     }
 
@@ -116,7 +129,7 @@ export function PremiumSearchRunner({
   const startPolling = useCallback(() => {
     if (pollTimer.current) return;
     setIsPolling(true);
-    setMessage("Searching live internship sources. This can take up to a minute.");
+    setMessage("We are checking the market.");
     void checkStatus();
     pollTimer.current = setInterval(() => {
       void checkStatus();
@@ -159,13 +172,13 @@ export function PremiumSearchRunner({
       }
 
       if (result?.status === "running") {
-        setMessage("Searching live internship sources. This can take up to a minute.");
+        setMessage("We are checking the market.");
         setIsRunning(false);
         startPolling();
         return;
       }
 
-      setMessage("Searching live internship sources. This can take up to a minute.");
+      setMessage("We are checking the market.");
       setIsRunning(false);
       startPolling();
     } catch {
@@ -189,13 +202,23 @@ export function PremiumSearchRunner({
 
   const active = autoStart || pollOnly || isRunning || isPolling;
 
+  useEffect(() => {
+    if (!active) return;
+    const stepTimer = setInterval(() => {
+      setStepIndex((value) => (value + 1) % searchSteps.length);
+    }, 2200);
+    return () => clearInterval(stepTimer);
+  }, [active]);
+
   return (
     <div className="mt-8 max-w-2xl rounded-lg border border-emerald-100 bg-white p-8 shadow-soft">
       <p className="text-sm font-semibold uppercase text-signal">Live search</p>
       <h1 className="mt-3 text-4xl font-bold text-ink">{retry ? "Retry your premium search" : pollOnly ? "Checking your premium search" : "Finding your premium leads"}</h1>
       <p className="mt-4 text-ink/70">{message}</p>
+      {active ? <p className="mt-3 rounded-md bg-emerald-50 p-3 text-sm font-semibold text-emerald-900">{searchSteps[stepIndex]}</p> : null}
       {active ? <LoadingBar /> : null}
       {active ? <p className="mt-3 text-sm font-semibold text-ink/55">We are checking automatically. You can keep this page open.</p> : null}
+      {active ? <WaitingRedFlagGame /> : null}
       {error ? <p className="mt-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
       {autoStart || pollOnly ? (
         <button type="button" onClick={navigateToCleanPremiumUrl} className="mt-6 inline-flex button-secondary text-sm">
