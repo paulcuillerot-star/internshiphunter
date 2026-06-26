@@ -5,11 +5,12 @@ import { ContinuePremiumCheckoutButton } from "@/components/ContinuePremiumCheck
 import { OfferCard } from "@/components/OfferCard";
 import { PremiumCheckoutConfirmer } from "@/components/PremiumCheckoutConfirmer";
 import { PremiumSearchForm } from "@/components/PremiumSearchForm";
+import { PremiumSearchReport } from "@/components/PremiumSearchReport";
 import { PremiumSearchRunner } from "@/components/PremiumSearchRunner";
 import { PremiumSecondSearchOptions } from "@/components/PremiumSecondSearchOptions";
 import { getReportIfAuthorized } from "@/lib/store";
 import { getStripeClient } from "@/lib/stripe";
-import type { ScoredInternshipOffer } from "@/lib/types";
+import type { PremiumSearchInputs, ScoredInternshipOffer } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -232,7 +233,9 @@ function capturePremiumQuestionnaireRender({
   });
 }
 
-function PremiumOffers({ reportId, offers }: { reportId: string; offers: ScoredInternshipOffer[] }) {
+function PremiumOffers({ reportId, offers, premiumInputs, errorMessage }: { reportId: string; offers: ScoredInternshipOffer[]; premiumInputs?: PremiumSearchInputs; errorMessage?: string }) {
+  const hasExactMatches = offers.some((offer) => offer.matchType === "exact");
+
   return (
     <section className="section">
       <p className="text-sm font-semibold uppercase text-signal">Premium unlocked</p>
@@ -241,11 +244,24 @@ function PremiumOffers({ reportId, offers }: { reportId: string; offers: ScoredI
         3 curated internship leads when available. If your criteria are narrow, close alternatives may be included and clearly labelled.
       </p>
       <div className="mt-8 grid gap-5">{offers.map((offer) => <OfferCard key={offer.id} offer={offer} reportId={reportId} premium />)}</div>
+      <PremiumSearchReport variant={hasExactMatches ? "results" : "alternatives"} inputs={premiumInputs} offers={offers} errorMessage={errorMessage} />
     </section>
   );
 }
 
-function NoStrongMatchesOutcome({ reportId, token, errorMessage, retryAvailable }: { reportId: string; token?: string; errorMessage?: string; retryAvailable: boolean }) {
+function NoStrongMatchesOutcome({
+  reportId,
+  token,
+  errorMessage,
+  retryAvailable,
+  premiumInputs
+}: {
+  reportId: string;
+  token?: string;
+  errorMessage?: string;
+  retryAvailable: boolean;
+  premiumInputs?: PremiumSearchInputs;
+}) {
   const summary = parseNoStrongSummary(errorMessage);
   const finalOutcome = !retryAvailable;
 
@@ -276,6 +292,7 @@ function NoStrongMatchesOutcome({ reportId, token, errorMessage, retryAvailable 
         </div>
         <p className="mt-4 rounded-md bg-emerald-50 p-3 text-sm leading-6 text-emerald-900">Filtered out because: {summary.reasons}</p>
         {summary.strategy ? <p className="mt-3 rounded-md bg-ink/5 p-3 text-sm text-ink/70">Compromise used in the second search: {summary.strategy}</p> : null}
+        <PremiumSearchReport variant="empty" inputs={premiumInputs} errorMessage={errorMessage} retryAvailable={retryAvailable} />
         {retryAvailable ? (
           <PremiumSecondSearchOptions reportId={reportId} accessToken={token} />
         ) : (
@@ -320,7 +337,7 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
   }
 
   if (unlocked && premiumStatus === "completed" && completedOffers.length > 0) {
-    return <PremiumOffers reportId={report.id} offers={completedOffers} />;
+    return <PremiumOffers reportId={report.id} offers={completedOffers} premiumInputs={report.premiumInputs} errorMessage={report.premiumSearchError} />;
   }
 
   if (paymentReturning && !unlocked && searchParams.session_id) {
@@ -482,7 +499,15 @@ export default async function PremiumPage({ params, searchParams }: { params: { 
 
   if (premiumStatus === "failed") {
     if (isNoStrongMatchesOutcome(report.premiumSearchError)) {
-      return <NoStrongMatchesOutcome reportId={report.id} token={report.accessToken} errorMessage={report.premiumSearchError} retryAvailable={retryAvailable} />;
+      return (
+        <NoStrongMatchesOutcome
+          reportId={report.id}
+          token={report.accessToken}
+          errorMessage={report.premiumSearchError}
+          retryAvailable={retryAvailable}
+          premiumInputs={report.premiumInputs}
+        />
+      );
     }
 
     if (unlocked && report.premiumOffers.length > 0) {
