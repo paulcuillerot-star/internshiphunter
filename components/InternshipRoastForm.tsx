@@ -52,11 +52,13 @@ export function InternshipRoastForm() {
   const [result, setResult] = useState<RoastResult | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     setResult(null);
+    setCopied(false);
 
     if (!offerText.trim()) {
       setError("Paste an internship offer first.");
@@ -80,6 +82,13 @@ export function InternshipRoastForm() {
     }
 
     setResult(data.result);
+  }
+
+  async function copyOneLiner() {
+    if (!result?.shareableOneLiner) return;
+    await navigator.clipboard.writeText(result.shareableOneLiner);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1800);
   }
 
   return (
@@ -165,6 +174,9 @@ export function InternshipRoastForm() {
               <div className="rounded-lg bg-emerald-50 p-5 ring-1 ring-emerald-100">
                 <p className="text-xs font-bold uppercase tracking-wide text-signal">Shareable one-liner</p>
                 <p className="mt-2 text-lg font-black text-ink">{result.shareableOneLiner}</p>
+                <button type="button" onClick={copyOneLiner} className="mt-4 inline-flex button-secondary">
+                  {copied ? "Copied" : "Copy one-liner"}
+                </button>
               </div>
             </div>
 
