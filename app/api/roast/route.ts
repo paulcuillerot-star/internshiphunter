@@ -20,6 +20,10 @@ export type RoastResult = {
   shareableOneLiner: string;
 };
 
+const minOfferLength = 120;
+const maxOfferLength = 15_000;
+const roastFailedMessage = "The roast could not run cleanly. Try again with a shorter offer.";
+
 type OpenAITextResponse = {
   output_text?: string;
   output?: Array<{
@@ -131,36 +135,49 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Paste an internship offer first." }, { status: 400 });
   }
 
+  const trimmedOfferText = offerText.trim();
+  if (trimmedOfferText.length < minOfferLength) {
+    return NextResponse.json({ error: "Paste a little more of the offer so we have enough to roast." }, { status: 400 });
+  }
+
+  if (trimmedOfferText.length > maxOfferLength) {
+    return NextResponse.json({ error: "That offer is a bit too long to roast cleanly. Try pasting the most important parts." }, { status: 400 });
+  }
+
   if (!hasOpenAIConfig()) {
     return NextResponse.json({ result: mockRoast });
   }
 
-  const response = await createOpenAIResponse<OpenAITextResponse>({
-    model: process.env.OPENAI_MODEL || "gpt-5",
-    text: {
-      format: roastSchema
-    },
-    input: [
-      {
-        role: "system",
-        content:
-          "You are Internship Roast by Internship Hunter. Roast the internship offer, not the student. Be funny, honest, slightly savage, and useful. Avoid legal certainty. Use cautious wording like looks like, might, risk, and based on the text. Do not use web search. Do not claim facts beyond the pasted text."
+  try {
+    const response = await createOpenAIResponse<OpenAITextResponse>({
+      model: process.env.OPENAI_MODEL || "gpt-5",
+      text: {
+        format: roastSchema
       },
-      {
-        role: "user",
-        content: JSON.stringify({
-          internshipOfferText: offerText.slice(0, 12_000),
-          studentContext: studentContext?.slice(0, 2_000) ?? "",
-          requiredTone: "Funny, honest, slightly savage, but useful.",
-          requiredOutput:
-            "Return a structured roast with a verdict, risk scores, green flags, red flags, translation of corporate phrases, application advice, an honest take and a shareable one-liner."
-        })
-      }
-    ]
-  });
+      input: [
+        {
+          role: "system",
+          content:
+            "You are Internship Roast by Internship Hunter. Roast the internship offer, not the student. Be funny, honest, slightly savage, and useful. Avoid legal certainty. Use cautious wording like looks like, might, risk, and based on the text. Do not use web search. Do not claim facts beyond the pasted text."
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            internshipOfferText: trimmedOfferText.slice(0, 12_000),
+            studentContext: studentContext?.slice(0, 2_000) ?? "",
+            requiredTone: "Funny, honest, slightly savage, but useful.",
+            requiredOutput:
+              "Return a structured roast with a verdict, risk scores, green flags, red flags, translation of corporate phrases, application advice, an honest take and a shareable one-liner."
+          })
+        }
+      ]
+    });
 
-  const text = extractText(response);
-  const parsed = JSON.parse(text) as RoastResult;
+    const text = extractText(response);
+    const parsed = JSON.parse(text) as RoastResult;
 
-  return NextResponse.json({ result: normalizeRoast(parsed) });
+    return NextResponse.json({ result: normalizeRoast(parsed) });
+  } catch {
+    return NextResponse.json({ error: roastFailedMessage }, { status: 500 });
+  }
 }
