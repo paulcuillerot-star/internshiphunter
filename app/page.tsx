@@ -63,6 +63,9 @@ export default function HomePage() {
               <Link href="/premium/start" className="inline-flex items-center justify-center rounded-md border border-emerald-300 bg-white px-6 py-3 text-sm font-bold text-signal shadow-soft transition hover:border-signal hover:bg-emerald-50">
                 Start Premium Search
               </Link>
+              <Link href="/roast" className="inline-flex items-center justify-center rounded-md border border-line bg-white px-6 py-3 text-sm font-bold text-ink shadow-soft transition hover:border-ink">
+                Roast an offer
+              </Link>
             </div>
             <div className="mt-3 grid gap-1 text-sm font-semibold text-ink/55 sm:grid-cols-2">
               <p>Free: 1 cached Europe opportunity.</p>
